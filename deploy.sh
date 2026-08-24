@@ -13,6 +13,16 @@ cd "$(dirname "$0")"
 NS=observability
 say() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
+# 🔴 ต้องตั้งก่อนรันเสมอ — repo นี้เป็น public จึงไม่ hardcode hostname
+# จริงของ cluster ไว้ในไฟล์ที่ commit (ดู README หัวข้อ "ก่อนเริ่ม")
+#
+#   export INGRESS_HOST=your-real-domain.example.com
+if [ -z "${INGRESS_HOST:-}" ]; then
+  echo "FATAL: ต้องตั้ง environment variable INGRESS_HOST ก่อนรัน" >&2
+  echo "  ตัวอย่าง: export INGRESS_HOST=your-domain.example.com" >&2
+  exit 1
+fi
+
 # --- ตรวจสิ่งที่ต้องมีก่อน ---------------------------------------------------
 say "ตรวจ vm.max_map_count บน node"
 # Elasticsearch ต้องการอย่างน้อย 262144 ไม่งั้นจะไม่ start เลย
@@ -75,7 +85,7 @@ kubectl rollout status daemonset/filebeat -n "$NS" --timeout=5m
 # --- Kibana ------------------------------------------------------------------
 say "Kibana"
 kubectl apply -f kibana/01-service.yaml
-kubectl apply -f kibana/02-deployment.yaml
+sed "s/__INGRESS_HOST__/$INGRESS_HOST/g" kibana/02-deployment.yaml | kubectl apply -f -
 kubectl rollout status deployment/kibana -n "$NS" --timeout=10m
 
 say "data view + saved search ของ Kibana"
@@ -90,7 +100,7 @@ kubectl wait --for=condition=complete job/kibana-import -n "$NS" --timeout=10m
 kubectl logs job/kibana-import -n "$NS"
 
 say "Ingress"
-kubectl apply -f ingress/00-kibana-ingress.yaml
+sed "s/__INGRESS_HOST__/$INGRESS_HOST/g" ingress/00-kibana-ingress.yaml | kubectl apply -f -
 
 # --- สรุป --------------------------------------------------------------------
 say "เรียบร้อย"

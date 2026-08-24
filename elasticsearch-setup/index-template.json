@@ -1,6 +1,6 @@
 {
   "index_patterns": [
-    "logs-vertex.*-prod"
+    "logs-*.*-prod"
   ],
   "data_stream": {},
   "priority": 500,
@@ -97,6 +97,9 @@
           "type": "keyword"
         },
         "log.file.path": {
+          "type": "keyword"
+        },
+        "dataset": {
           "type": "keyword"
         }
       }

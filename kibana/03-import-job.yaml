@@ -41,7 +41,16 @@ spec:
             - -c
             - |
               set -eu
-              K=http://kibana:5601
+              # 🔴 ต้องมี /kibana ต่อท้ายเสมอ ไม่ใช่แค่ host:port เฉยๆ
+              #
+              # Kibana ตั้ง SERVER_REWRITEBASEPATH: true ไว้ (ดู
+              # kibana/02-deployment.yaml) เพื่อรองรับ ingress ที่ /kibana
+              # (VT-70) ผลคือ Kibana ปฏิเสธทุก path ที่ไม่มี /kibana นำหน้า
+              # แม้แต่ตอนเรียกจากภายใน cluster ตรงๆ ไม่ผ่าน ingress เลยก็ตาม
+              #
+              # ลืมจุดนี้แล้ว curl จะค้างรอ /api/status สำเร็จไม่มีวันจบ
+              # เพราะได้ 404 เงียบๆ ไม่ใช่ error ที่เห็นชัด
+              K=http://kibana:5601/kibana
               AUTH="elastic:${ELASTIC_PASSWORD}"
 
               echo "==> รอ Kibana พร้อม"
@@ -68,7 +77,8 @@ spec:
                 -X POST "$K/api/kibana/settings" \
                 -d '{"changes":{
                       "defaultIndex":"87fd42cb-c495-4f6c-86a9-1fb9d92377d7",
-                      "defaultColumns":["kubernetes.deployment.name",
+                      "defaultColumns":["kubernetes.namespace",
+                                        "kubernetes.deployment.name",
                                         "error_severity","status","message"],
                       "discover:sampleSize":500,
                       "dateFormat:tz":"Asia/Bangkok"}}' >/dev/null

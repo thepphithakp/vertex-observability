@@ -102,6 +102,12 @@ spec:
                   -d "{\"password\":\"${FILEBEAT_PASSWORD}\",
                        \"roles\":[\"filebeat_writer\"]}"
 
+              # ชื่อ vertex-logs-policy / vertex-logs เป็นแค่ identifier
+              # ของ object ใน Elasticsearch ไม่ได้จำกัดว่าจะจับ namespace
+              # ไหน — ตัวที่กำหนดว่าจับ namespace ไหนคือ index_patterns
+              # ใน index-template.json (ปัจจุบันคือ logs-*.*-prod ครอบ
+              # ทุก namespace ที่ Filebeat ถูกตั้งให้เก็บ) ไม่เปลี่ยนชื่อ
+              # เพื่อกันไม่ต้องลบ policy/template เดิมทิ้งแล้วสร้างใหม่
               echo "==> ติดตั้ง ILM policy (retention 7 วัน)"
               req -X PUT "$ES/_ilm/policy/vertex-logs-policy" \
                   --data-binary @/files/ilm-policy.json

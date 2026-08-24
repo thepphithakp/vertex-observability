@@ -6,27 +6,40 @@ metadata:
 data:
   filebeat.yml: |
     # =========================================================================
-    # Filebeat — เก็บ log ของ pod เฉพาะ namespace vertex
+    # Filebeat — เก็บ log ของ pod เฉพาะ namespace ที่อนุญาตไว้
     # =========================================================================
+    #
+    # 🔸 ตอนนี้อนุญาตแค่ vertex เท่านั้น — ดูรายการที่ allowedNamespaces
+    #    การเพิ่ม namespace ต้องเป็นการตัดสินใจที่ตั้งใจ ไม่ใช่เพิ่มเพราะ
+    #    อยากเห็น ทุก namespace ที่เพิ่มคือ disk และ heap ของ Elasticsearch
+    #    ที่เพิ่มตามจริง (ดู ResourceQuota ที่ namespace/01-resourcequota.yaml)
 
     # --- เก็บจากที่ไหน ---------------------------------------------------
     # ใช้ autodiscover แทนการ mount path ตายตัว เพราะ pod เกิดและตาย
     # ตลอดเวลา ทุกครั้งที่ deploy ชื่อ pod เปลี่ยน path เปลี่ยน
     # autodiscover เฝ้า API ของ k8s แล้วเริ่ม/หยุดเก็บตามอัตโนมัติ
     #
-    # 🔸 กรอง namespace ที่ "ต้นทาง" ไม่ใช่ปลายทาง
-    #    ตั้ง namespace: vertex ที่ provider ทำให้ Filebeat ไม่แม้แต่จะเปิด
-    #    ไฟล์ log ของ namespace อื่น — ประหยัดทั้ง CPU และ disk I/O
-    #    ถ้าไปกรองทีหลังด้วย drop_event จะอ่านไฟล์ทิ้งเปล่าๆ ก่อน
+    # 🔴 กรอง namespace ที่ "ต้นทาง" ด้วย template condition ไม่ใช่ที่
+    #    provider เหมือนเดิม
     #
-    #    ผลพลอยได้ที่สำคัญ: Filebeat อยู่ใน namespace observability
-    #    จึงอ่าน log ตัวเองไม่ได้ ไม่มีทางเกิดลูป log-เก็บ-log-ตัวเอง
+    #    provider เดิมมี namespace: vertex ซึ่งเป็น field ที่รับได้
+    #    "ค่าเดียว" เท่านั้น รองรับ namespace เดียวถาวร ขยายไม่ได้
+    #
+    #    ย้ายมาไว้ที่ condition ของ template แทน เพราะรองรับ or ได้
+    #    เพิ่ม namespace ใหม่ทำได้แค่เติมบรรทัดในลิสต์นี้ ไม่ต้องแก้
+    #    โครงสร้างอื่นเลย — ความปลอดภัยเดิมยังอยู่ครบเหมือนเดิมทุกอย่าง
+    #    Filebeat ยัง "ไม่เปิดไฟล์" ของ namespace ที่ไม่อยู่ใน list นี้
+    #    เพราะ condition ตัดสินใจก่อนสร้าง harvester เหมือนที่เคยทำที่
+    #    provider แค่ย้ายจุดตัดสินใจลงมาอีกชั้นเดียว
+    #
+    #    ผลพลอยได้ที่สำคัญยังอยู่เหมือนเดิม: Filebeat อยู่ใน namespace
+    #    observability ซึ่งไม่เคยอยู่ใน list นี้ จึงอ่าน log ตัวเองไม่ได้
+    #    ไม่มีทางเกิดลูป log-เก็บ-log-ตัวเอง ไม่ว่าจะเพิ่ม namespace ไหน
     filebeat.autodiscover:
       providers:
         - type: kubernetes
           node: ${NODE_NAME}
           scope: node
-          namespace: vertex
 
           # 🔸 ต้องเปิด deployment เอง — provider ไม่เปิดให้โดยค่าเริ่มต้น
           #
@@ -49,12 +62,22 @@ data:
               enabled: false
 
           templates:
+            # เพิ่ม namespace ใหม่ — เติม equals อีกบรรทัดในลิสต์ or นี้
+            #
+            #   or:
+            #     - equals: {kubernetes.namespace: vertex}
+            #     - equals: {kubernetes.namespace: <namespace ใหม่>}
+            #
+            # แค่นี้พอ ไม่ต้องแก้ที่อื่นเลย — index name และ dataset
+            # ด้านล่างอ่านค่า namespace จริงจาก kubernetes.namespace
+            # อัตโนมัติอยู่แล้ว ไม่ได้ hardcode "vertex" ไว้
             - condition:
-                equals:
-                  kubernetes.namespace: vertex
+                or:
+                  - equals:
+                      kubernetes.namespace: vertex
               config:
                 - type: filestream
-                  id: vertex-${data.kubernetes.container.id}
+                  id: log-${data.kubernetes.container.id}
                   paths:
                     - /var/log/containers/*-${data.kubernetes.container.id}.log
 
@@ -129,20 +152,26 @@ data:
       # สร้างชื่อ dataset สำหรับใช้เป็นชื่อ data stream
       #
       # 🔸 ทำไมต้องแปลง - เป็น _
-      #    ชื่อ data stream คือ logs-<dataset>-<namespace> ใช้ - เป็นตัวคั่น
-      #    ถ้าปล่อย "pet-service" ไว้ จะได้ logs-vertex.pet-service-prod
-      #    ซึ่ง Elasticsearch อ่านเป็น dataset=vertex.pet, namespace=service-prod
-      #    กลายเป็น data stream คนละอันกับที่ตั้งใจ และ ILM ไม่จับ
+      #    ชื่อ data stream คือ logs-<namespace>.<dataset>-prod ใช้ .
+      #    เป็นตัวคั่นระหว่าง namespace กับ dataset ถ้าปล่อยชื่อ service
+      #    ที่มี - ไว้ (เช่น "pet-service") Elasticsearch จะตีความ . กับ -
+      #    ปนกันจนได้ dataset/namespace ผิดตัว จึงต้องแปลง - เป็น _ ก่อน
+      #
+      # 🔸 field ชื่อ dataset เฉยๆ ไม่ใช่ vertex.dataset
+      #    เดิมตั้งชื่อ vertex.dataset เพราะตอนนั้นเก็บแค่ namespace เดียว
+      #    ตอนนี้ manifest รองรับหลาย namespace แล้ว field นี้จึงไม่ควร
+      #    ผูกกับชื่อ vertex อีกต่อไป — namespace จริงมาจาก
+      #    kubernetes.namespace อยู่แล้ว ไม่ต้องเอามาปนกับชื่อ field นี้
       - script:
           lang: javascript
-          id: vertex_dataset
+          id: set_dataset
           source: >
             function process(event) {
                 // --- ชื่อ data stream ---
                 var app = event.Get("kubernetes.labels.app");
                 if (!app) { app = event.Get("kubernetes.container.name"); }
                 if (!app) { app = "unknown"; }
-                event.Put("vertex.dataset",
+                event.Put("dataset",
                           String(app).toLowerCase().replace(/[^a-z0-9_]/g, "_"));
 
                 // --- เติม message ให้ access log ที่ไม่มีข้อความ ---
@@ -173,9 +202,19 @@ data:
       username: "${FILEBEAT_USERNAME}"
       password: "${FILEBEAT_PASSWORD}"
 
-      # แยก data stream ต่อ service เพื่อให้กรองใน Discover ได้เร็ว
-      # และลบทิ้งแยกกันได้ถ้าวันหนึ่ง service ไหน log เยอะผิดปกติ
-      index: "logs-vertex.%{[vertex.dataset]}-prod"
+      # แยก data stream ต่อ namespace และต่อ service เพื่อให้กรองใน
+      # Discover ได้เร็ว และลบทิ้งแยกกันได้ถ้าวันหนึ่ง service ไหน
+      # log เยอะผิดปกติ
+      #
+      # 🔸 ใช้ kubernetes.namespace จริง ไม่ hardcode "vertex"
+      #    เดิมเขียน "logs-vertex.%{[vertex.dataset]}-prod" ตรงๆ
+      #    ถ้าเพิ่ม namespace อื่นแล้วไม่แก้ตรงนี้ด้วย log ของ namespace
+      #    ใหม่จะไหลไปปนใน logs-vertex.* ทั้งที่ไม่ใช่ vertex จริง
+      #
+      #    สำหรับ namespace vertex ผลลัพธ์เหมือนเดิมทุกประการ เพราะ
+      #    kubernetes.namespace มีค่าเป็น "vertex" อยู่แล้ว — เปลี่ยน
+      #    วิธีคำนวณโดยไม่กระทบชื่อ data stream ที่มีอยู่แล้วเลย
+      index: "logs-%{[kubernetes.namespace]}.%{[dataset]}-prod"
 
     # 🔸 ปิด template และ ILM ที่ Filebeat จะติดตั้งเอง
     #
