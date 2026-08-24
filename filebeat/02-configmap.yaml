@@ -99,16 +99,28 @@ data:
     processors:
       # ตัดฟิลด์ที่ไม่มีใครใช้ใน Discover ออก
       # ทุกฟิลด์ที่เก็บคือ disk ที่เสียไป และตัวเลือกที่รกใน sidebar
+      # 🔸 kubernetes.node.labels เป็นตัวปัญหาที่สุด
+      #    มันแนบ label ของ node มาทุก document ราว 10 ฟิลด์
+      #    ซึ่งมีค่าเหมือนกันหมดทุกบรรทัดเพราะมี node เดียว
+      #    เปลืองทั้ง disk และทำให้ sidebar ของ Discover รกจนหาของจริงไม่เจอ
       - drop_fields:
           fields:
             - agent.ephemeral_id
             - agent.id
+            - agent.name
             - agent.type
             - agent.version
             - ecs.version
             - input.type
             - log.offset
+            - log.file.inode
+            - log.file.device_id
+            - container.runtime
+            - kubernetes.node.labels
+            - kubernetes.node.uid
+            - kubernetes.node.hostname
             - kubernetes.pod.uid
+            - kubernetes.pod.ip
             - kubernetes.namespace_uid
             - kubernetes.namespace_labels
             - kubernetes.labels.pod-template-hash
@@ -126,11 +138,33 @@ data:
           id: vertex_dataset
           source: >
             function process(event) {
+                // --- ชื่อ data stream ---
                 var app = event.Get("kubernetes.labels.app");
                 if (!app) { app = event.Get("kubernetes.container.name"); }
                 if (!app) { app = "unknown"; }
                 event.Put("vertex.dataset",
                           String(app).toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+
+                // --- เติม message ให้ access log ที่ไม่มีข้อความ ---
+                //
+                // auth-service กับ pet-service เขียน access log เป็น JSON
+                // ที่มีแต่ method / path / status / latency ไม่มีฟิลด์ข้อความเลย
+                //
+                // ผลคือคอลัมน์ message ใน Discover ว่างเปล่าทั้งแถบ
+                // ซึ่งอ่านไม่รู้เรื่องเลยว่าแต่ละบรรทัดคืออะไร
+                // ต้องกดเปิดดู JSON ทีละบรรทัดจึงจะรู้
+                //
+                // สร้างบรรทัดสรุปให้แทน เช่น  POST /login -> 500
+                var msg = event.Get("message");
+                if (msg === null || msg === "") {
+                    var m = event.Get("method");
+                    var p = event.Get("path");
+                    if (m && p) {
+                        var st = event.Get("status");
+                        event.Put("message",
+                                  m + " " + p + " -> " + (st === null ? "?" : st));
+                    }
+                }
             }
 
     # --- ส่งไปไหน ---------------------------------------------------------

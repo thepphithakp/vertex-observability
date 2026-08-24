@@ -1,5 +1,7 @@
 {
-  "index_patterns": ["logs-vertex.*-prod"],
+  "index_patterns": [
+    "logs-vertex.*-prod"
+  ],
   "data_stream": {},
   "priority": 500,
   "template": {
@@ -13,27 +15,90 @@
     "mappings": {
       "dynamic": "runtime",
       "properties": {
-        "@timestamp":                  { "type": "date" },
-        "message":                     { "type": "text" },
-        "log.level":                   { "type": "keyword" },
-        "level":                       { "type": "keyword" },
-        "error_severity":              { "type": "keyword" },
-        "state_code":                  { "type": "keyword" },
-        "detail":                      { "type": "text" },
-        "hint":                        { "type": "text" },
-        "user":                        { "type": "keyword" },
-        "dbname":                      { "type": "keyword" },
-        "requestId":                   { "type": "keyword" },
-        "request_id":                  { "type": "keyword" },
-        "vertex.dataset":              { "type": "keyword" },
-        "stream":                      { "type": "keyword" },
-        "host.name":                   { "type": "keyword" },
-        "kubernetes.namespace":        { "type": "keyword" },
-        "kubernetes.node.name":        { "type": "keyword" },
-        "kubernetes.pod.name":         { "type": "keyword" },
-        "kubernetes.container.name":   { "type": "keyword" },
-        "kubernetes.deployment.name":  { "type": "keyword" },
-        "kubernetes.labels.app":       { "type": "keyword" }
+        "@timestamp": {
+          "type": "date"
+        },
+        "message": {
+          "type": "text"
+        },
+        "log.level": {
+          "type": "keyword"
+        },
+        "level": {
+          "type": "keyword"
+        },
+        "error_severity": {
+          "type": "keyword"
+        },
+        "state_code": {
+          "type": "keyword"
+        },
+        "detail": {
+          "type": "text"
+        },
+        "hint": {
+          "type": "text"
+        },
+        "user": {
+          "type": "keyword"
+        },
+        "dbname": {
+          "type": "keyword"
+        },
+        "requestId": {
+          "type": "keyword"
+        },
+        "request_id": {
+          "type": "keyword"
+        },
+        "vertex.dataset": {
+          "type": "keyword"
+        },
+        "stream": {
+          "type": "keyword"
+        },
+        "host.name": {
+          "type": "keyword"
+        },
+        "kubernetes.namespace": {
+          "type": "keyword"
+        },
+        "kubernetes.node.name": {
+          "type": "keyword"
+        },
+        "kubernetes.pod.name": {
+          "type": "keyword"
+        },
+        "kubernetes.container.name": {
+          "type": "keyword"
+        },
+        "kubernetes.deployment.name": {
+          "type": "keyword"
+        },
+        "kubernetes.labels.app": {
+          "type": "keyword"
+        },
+        "method": {
+          "type": "keyword"
+        },
+        "path": {
+          "type": "keyword"
+        },
+        "status": {
+          "type": "short"
+        },
+        "latency": {
+          "type": "keyword"
+        },
+        "time": {
+          "type": "keyword"
+        },
+        "container.image.name": {
+          "type": "keyword"
+        },
+        "log.file.path": {
+          "type": "keyword"
+        }
       }
     }
   }
