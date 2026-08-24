@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: observability
+data:
+  filebeat.yml: |
+    # =========================================================================
+    # Filebeat — เก็บ log ของ pod เฉพาะ namespace vertex
+    # =========================================================================
+
+    # --- เก็บจากที่ไหน ---------------------------------------------------
+    # ใช้ autodiscover แทนการ mount path ตายตัว เพราะ pod เกิดและตาย
+    # ตลอดเวลา ทุกครั้งที่ deploy ชื่อ pod เปลี่ยน path เปลี่ยน
+    # autodiscover เฝ้า API ของ k8s แล้วเริ่ม/หยุดเก็บตามอัตโนมัติ
+    #
+    # 🔸 กรอง namespace ที่ "ต้นทาง" ไม่ใช่ปลายทาง
+    #    ตั้ง namespace: vertex ที่ provider ทำให้ Filebeat ไม่แม้แต่จะเปิด
+    #    ไฟล์ log ของ namespace อื่น — ประหยัดทั้ง CPU และ disk I/O
+    #    ถ้าไปกรองทีหลังด้วย drop_event จะอ่านไฟล์ทิ้งเปล่าๆ ก่อน
+    #
+    #    ผลพลอยได้ที่สำคัญ: Filebeat อยู่ใน namespace observability
+    #    จึงอ่าน log ตัวเองไม่ได้ ไม่มีทางเกิดลูป log-เก็บ-log-ตัวเอง
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          node: ${NODE_NAME}
+          scope: node
+          namespace: vertex
+          templates:
+            - condition:
+                equals:
+                  kubernetes.namespace: vertex
+              config:
+                - type: filestream
+                  id: vertex-${data.kubernetes.container.id}
+                  paths:
+                    - /var/log/containers/*-${data.kubernetes.container.id}.log
+                  parsers:
+                    # containerd เขียน log เป็นรูปแบบ CRI
+                    #   <เวลา> <stream> <flag> <ข้อความจริง>
+                    # parser นี้แกะออกมา แล้วตั้ง @timestamp จากเวลาที่
+                    # runtime บันทึกตอนเขียนบรรทัดนั้น
+                    - container:
+                        stream: all
+                        format: auto
+
+                    # แกะ JSON ที่อยู่ในข้อความอีกชั้น
+                    #
+                    # 🔸 ignore_decoding_error ต้องเป็น true
+                    #    ตอนนี้ pet-service กับ auth-service ยังมีบางบรรทัด
+                    #    ที่ไม่ใช่ JSON (VT-60) ถ้าไม่ตั้ง Filebeat จะพ่น error
+                    #    ทุกบรรทัดจน log ของตัวเองท่วมกว่า log ที่เก็บได้
+                    #    บรรทัดที่แกะไม่ได้จะอยู่ในฟิลด์ message ตามเดิม
+                    #    ยังค้นหาได้ปกติ แค่ไม่มีฟิลด์ย่อย
+                    - ndjson:
+                        target: ""
+                        message_key: message
+                        overwrite_keys: true
+                        add_error_key: false
+                        ignore_decoding_error: true
+
+    # --- แต่งข้อมูลก่อนส่ง -----------------------------------------------
+    processors:
+      # ตัดฟิลด์ที่ไม่มีใครใช้ใน Discover ออก
+      # ทุกฟิลด์ที่เก็บคือ disk ที่เสียไป และตัวเลือกที่รกใน sidebar
+      - drop_fields:
+          fields:
+            - agent.ephemeral_id
+            - agent.id
+            - agent.type
+            - agent.version
+            - ecs.version
+            - input.type
+            - log.offset
+            - kubernetes.pod.uid
+            - kubernetes.namespace_uid
+            - kubernetes.namespace_labels
+            - kubernetes.labels.pod-template-hash
+          ignore_missing: true
+
+      # สร้างชื่อ dataset สำหรับใช้เป็นชื่อ data stream
+      #
+      # 🔸 ทำไมต้องแปลง - เป็น _
+      #    ชื่อ data stream คือ logs-<dataset>-<namespace> ใช้ - เป็นตัวคั่น
+      #    ถ้าปล่อย "pet-service" ไว้ จะได้ logs-vertex.pet-service-prod
+      #    ซึ่ง Elasticsearch อ่านเป็น dataset=vertex.pet, namespace=service-prod
+      #    กลายเป็น data stream คนละอันกับที่ตั้งใจ และ ILM ไม่จับ
+      - script:
+          lang: javascript
+          id: vertex_dataset
+          source: >
+            function process(event) {
+                var app = event.Get("kubernetes.labels.app");
+                if (!app) { app = event.Get("kubernetes.container.name"); }
+                if (!app) { app = "unknown"; }
+                event.Put("vertex.dataset",
+                          String(app).toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+            }
+
+    # --- ส่งไปไหน ---------------------------------------------------------
+    output.elasticsearch:
+      hosts: ["http://elasticsearch:9200"]
+      username: "${FILEBEAT_USERNAME}"
+      password: "${FILEBEAT_PASSWORD}"
+
+      # แยก data stream ต่อ service เพื่อให้กรองใน Discover ได้เร็ว
+      # และลบทิ้งแยกกันได้ถ้าวันหนึ่ง service ไหน log เยอะผิดปกติ
+      index: "logs-vertex.%{[vertex.dataset]}-prod"
+
+    # 🔸 ปิด template และ ILM ที่ Filebeat จะติดตั้งเอง
+    #
+    # เราจัดการ index template และ ILM policy เองใน elasticsearch-setup/
+    # ถ้าไม่ปิด Filebeat จะเขียนทับด้วยของตัวเองตอน start
+    # แล้วได้ mapping ที่ไม่ได้ตั้งใจ กับ retention ที่ไม่ใช่ 7 วัน
+    #
+    # กับดักคือมันไม่มี error ให้เห็น — index ถูกสร้างสำเร็จ ทุกอย่างดูปกติ
+    # แล้วมารู้ตอนกรองใน Discover ไม่ได้ หรือ disk เต็มเพราะไม่มีอะไรลบ
+    setup.template.enabled: false
+    setup.ilm.enabled: false
+    setup.dashboards.enabled: false
+
+    # log ของ Filebeat เอง — ให้ออก stdout เพื่อดูด้วย kubectl logs
+    logging.level: info
+    logging.to_files: false
+
+    # เปิด endpoint สำหรับ health check ของ probe
+    http.enabled: true
+    http.host: 127.0.0.1
+    http.port: 5066

@@ -1,0 +1,17 @@
+# ClusterIP เท่านั้น — เข้าถึงผ่าน port-forward
+# ไม่เปิดออก LAN เพราะ Kibana เห็น log ทั้งระบบ ซึ่งมีข้อมูลอ่อนไหว
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: observability
+  labels:
+    app: kibana
+spec:
+  type: ClusterIP
+  selector:
+    app: kibana
+  ports:
+    - name: http
+      port: 5601
+      targetPort: 5601

@@ -1,0 +1,47 @@
+# =============================================================================
+# สิทธิ์ของ Filebeat — อ่านอย่างเดียว ให้น้อยที่สุดเท่าที่ทำงานได้
+# =============================================================================
+# Filebeat ต้องเรียก API ของ k8s เพื่อแปลง container id ที่อยู่ในชื่อไฟล์ log
+# ให้เป็น metadata ที่คนอ่านรู้เรื่อง (ชื่อ pod, deployment, label)
+#
+# 🔸 ทำไมต้องมี replicasets
+#    pod ชื่อ pet-service-779c676458-j6gqg บอกไม่ได้ว่ามาจาก deployment ไหน
+#    ต้องไล่ pod → replicaset → deployment
+#    ถ้าไม่ให้สิทธิ์นี้ ฟิลด์ kubernetes.deployment.name จะหายไปเงียบๆ
+#    โดยไม่มี error — แล้วมารู้ตอนกรองใน Discover ไม่ได้
+#
+# 🔸 ทำไมต้องมี nodes
+#    autodiscover ใช้ scope: node ต้องอ่านข้อมูล node ตัวเองได้
+#
+# ไม่มีสิทธิ์เขียนอะไรเลยแม้แต่อย่างเดียว
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: observability
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io

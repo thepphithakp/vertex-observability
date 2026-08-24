@@ -1,0 +1,16 @@
+# ClusterIP เท่านั้น — ไม่เปิดออกนอก cluster เหมือน PostgreSQL
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: observability
+  labels:
+    app: elasticsearch
+spec:
+  type: ClusterIP
+  selector:
+    app: elasticsearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200

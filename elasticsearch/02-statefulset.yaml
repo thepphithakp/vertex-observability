@@ -1,0 +1,138 @@
+# =============================================================================
+# Elasticsearch — single node  (profile A · VT-64)
+# =============================================================================
+# ใช้ StatefulSet ไม่ใช่ Deployment เพราะ ES ต้องการ identity และ volume
+# ที่คงที่ข้ามการ restart
+#
+# --- memory ------------------------------------------------------------------
+#   heap   512m   (-Xms และ -Xmx ต้องเท่ากัน กันไม่ให้ heap ขยับตอนรัน)
+#   limit  1.5Gi  ต้องอย่างน้อยสองเท่าของ heap เพราะ Lucene ใช้ off-heap
+#                 สำหรับ file cache และ term dictionary
+#                 ตั้งเท่ากับ heap จะโดน OOMKilled ทั้งที่ heap ยังไม่เต็ม
+#                 แล้วหาสาเหตุยากมากเพราะ log ของ JVM ไม่บอกอะไร
+#
+# --- 🔴 disk watermark (F1 จาก review) ---------------------------------------
+# storageClass local-path เป็นแค่ hostPath bind — "ไม่บังคับขนาด PVC จริง"
+# ขอ 5Gi แต่เขียนได้จนเต็ม disk ของ node
+#
+# และ ES ดูพื้นที่ว่างจาก filesystem ไม่ใช่ขนาด PVC
+# ถ้าใช้ค่า default (flood_stage 95%) กว่า ES จะหยุดเขียน
+# PostgreSQL ที่ใช้ disk ก้อนเดียวกันก็เขียนไม่ได้ไปแล้ว
+#
+# จึงตั้งให้ ES หยุดตั้งแต่ 85% เหลือพื้นที่ 15% ให้ PostgreSQL หายใจ
+# เพดานจริงของขนาดข้อมูลคือ ILM retention ไม่ใช่ขนาด PVC
+#
+# --- security (F2 จาก review) ------------------------------------------------
+# เปิด authentication แต่ปิด TLS ของ HTTP
+# traffic อยู่ในคลัสเตอร์ทั้งหมดและ Service เป็น ClusterIP เหมือน PostgreSQL
+# ซึ่งก็ไม่ได้ใช้ TLS อยู่แล้ว การเปิด TLS จะเพิ่มงานจัดการ cert
+# โดยไม่ได้เพิ่มความปลอดภัยที่มีความหมายในบริบทนี้
+#
+# --- ก่อน apply ต้องทำ -------------------------------------------------------
+#   sysctl vm.max_map_count   ต้อง >= 262144 ไม่งั้น ES ไม่ start
+#   ตั้งที่ host ไม่ใช่ privileged initContainer (F5 จาก review)
+#     echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-elasticsearch.conf
+#     sudo sysctl --system
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: observability
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      securityContext:
+        # ES image รันเป็น uid 1000 — PVC ใหม่ถูกสร้างเป็นของ root
+        # fsGroup ทำให้ ES เขียนได้ ปลอดภัยเพราะเป็น volume ใหม่ ไม่มีข้อมูลเดิม
+        fsGroup: 1000
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9200
+              name: http
+          env:
+            - name: cluster.name
+              value: vertex-logs
+            - name: discovery.type
+              value: single-node
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+            - name: bootstrap.memory_lock
+              value: "false"
+            - name: xpack.security.enabled
+              value: "true"
+            - name: xpack.security.http.ssl.enabled
+              value: "false"
+            - name: xpack.security.transport.ssl.enabled
+              value: "false"
+            - name: xpack.ml.enabled
+              value: "false"
+            # หยุดเขียนตั้งแต่ 85% เพื่อไม่ให้ disk เต็มจน PostgreSQL พัง
+            - name: cluster.routing.allocation.disk.watermark.low
+              value: "75%"
+            - name: cluster.routing.allocation.disk.watermark.high
+              value: "80%"
+            - name: cluster.routing.allocation.disk.watermark.flood_stage
+              value: "85%"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: es-credentials
+                  key: ELASTIC_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 1536Mi
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          # ES ใช้เวลา start นานกว่า service ทั่วไปมาก จึงให้เวลา startup เยอะ
+          # ระหว่างนี้ liveness ยังไม่ทำงาน จึงไม่โดนฆ่าซ้ำระหว่างกำลังขึ้น
+          startupProbe:
+            exec:
+              command: &health
+                - bash
+                - -c
+                - >-
+                  curl -sf -u "elastic:${ELASTIC_PASSWORD}"
+                  "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s"
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: *health
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          # ตั้งหลวมโดยตั้งใจ — เหตุผลเดียวกับ PostgreSQL (ADR-013)
+          # liveness ที่ไวเกินไปกับ database จะสั่งฆ่าตอน GC นานหรือ merge หนัก
+          # ทั้งที่ยังทำงานปกติ กลายเป็นทำให้พังเอง
+          livenessProbe:
+            tcpSocket:
+              port: 9200
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

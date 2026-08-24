@@ -1,0 +1,9 @@
+# ห้าม commit ความลับจริงเด็ดขาด
+*-secret.yaml
+!*-secret.example.yaml
+secrets/
+*.key
+*.pem
+*.p12
+kubeconfig*
+.env

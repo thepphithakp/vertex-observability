@@ -1,0 +1,118 @@
+# =============================================================================
+# Job ตั้งค่าฝั่ง Elasticsearch — รันซ้ำได้เสมอ
+# =============================================================================
+# ทุกคำสั่งเป็น PUT หรือ POST ที่ให้ผลเหมือนเดิมทุกครั้ง
+# จึงรันซ้ำได้ปลอดภัยหลัง restart หรือหลังแก้ไฟล์ JSON
+#
+# ต้องสร้าง ConfigMap ที่เก็บไฟล์ JSON ก่อน apply job นี้
+#
+#   kubectl create configmap es-setup-files -n observability \
+#     --from-file=elasticsearch-setup/ilm-policy.json \
+#     --from-file=elasticsearch-setup/index-template.json \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# เก็บ JSON เป็นไฟล์จริงแทนการฝังใน YAML เพราะตรวจไวยากรณ์ได้
+# และเวลา diff จะเห็นว่าเปลี่ยนอะไรจริงๆ
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: es-setup
+  namespace: observability
+spec:
+  backoffLimit: 10
+  # ลบตัวเองทิ้ง 1 ชั่วโมงหลังสำเร็จ ไม่ให้ Job ที่จบแล้วค้างกินโควตา pods
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: setup
+          image: curlimages/curl:8.11.0
+          env:
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: es-credentials, key: ELASTIC_PASSWORD }
+            - name: KIBANA_SYSTEM_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: es-credentials, key: KIBANA_SYSTEM_PASSWORD }
+            - name: FILEBEAT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: es-credentials, key: FILEBEAT_PASSWORD }
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { memory: 64Mi }
+          volumeMounts:
+            - name: files
+              mountPath: /files
+              readOnly: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              ES=http://elasticsearch:9200
+              AUTH="elastic:${ELASTIC_PASSWORD}"
+
+              # --fail-with-body ทำให้เห็นข้อความ error ของ ES ด้วย
+              # ไม่ใช่แค่ exit code เปล่าๆ ที่บอกไม่ได้ว่าผิดตรงไหน
+              req() { curl -sS --fail-with-body -u "$AUTH" \
+                        -H 'Content-Type: application/json' "$@"; echo; }
+
+              echo "==> รอ Elasticsearch พร้อมรับงาน"
+              n=0
+              until curl -sf -u "$AUTH" "$ES/_cluster/health" >/dev/null 2>&1; do
+                n=$((n+1))
+                [ "$n" -gt 60 ] && {
+                  echo "FATAL: รอ Elasticsearch เกิน 5 นาทีแล้วยังไม่ขึ้น" >&2
+                  exit 1; }
+                sleep 5
+              done
+              echo "    พร้อมแล้ว"
+
+              # Kibana ปฏิเสธที่จะ start ถ้าใช้ superuser
+              # จึงต้องตั้งรหัสให้ user นี้ก่อน ไม่งั้น Kibana จะ CrashLoop
+              echo "==> ตั้งรหัสให้ kibana_system"
+              req -X POST "$ES/_security/user/kibana_system/_password" \
+                  -d "{\"password\":\"${KIBANA_SYSTEM_PASSWORD}\"}"
+
+              # สิทธิ์น้อยที่สุดเท่าที่ Filebeat ทำงานได้
+              #
+              # 🔸 ไม่มี delete และไม่มี manage โดยตั้งใจ
+              #    ถ้า Filebeat ถูกยึด สิ่งแรกที่ผู้บุกรุกอยากทำคือลบ log
+              #    เพื่อกลบร่องรอย — role นี้ทำให้ทำไม่ได้
+              #
+              # 🔸 ต้องมี auto_configure และ create_index
+              #    เพราะ data stream ถูกสร้างตอนเขียน document แรก
+              #    ถ้าไม่มีสองอันนี้ Filebeat จะส่ง log ไม่ได้เลยตั้งแต่แรก
+              echo "==> สร้าง role filebeat_writer"
+              req -X PUT "$ES/_security/role/filebeat_writer" -d '{
+                "cluster": ["monitor"],
+                "indices": [{
+                  "names": ["logs-*"],
+                  "privileges": [
+                    "auto_configure", "create_doc",
+                    "create_index", "view_index_metadata"
+                  ]
+                }]
+              }'
+
+              echo "==> สร้าง user filebeat_writer"
+              req -X PUT "$ES/_security/user/filebeat_writer" \
+                  -d "{\"password\":\"${FILEBEAT_PASSWORD}\",
+                       \"roles\":[\"filebeat_writer\"]}"
+
+              echo "==> ติดตั้ง ILM policy (retention 7 วัน)"
+              req -X PUT "$ES/_ilm/policy/vertex-logs-policy" \
+                  --data-binary @/files/ilm-policy.json
+
+              echo "==> ติดตั้ง index template"
+              req -X PUT "$ES/_index_template/vertex-logs" \
+                  --data-binary @/files/index-template.json
+
+              echo
+              echo "==> เสร็จเรียบร้อย"
+      volumes:
+        - name: files
+          configMap:
+            name: es-setup-files

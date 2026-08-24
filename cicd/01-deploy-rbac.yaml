@@ -1,0 +1,68 @@
+# =============================================================================
+# ServiceAccount สำหรับ CI/CD — deploy ได้เฉพาะ namespace observability
+# =============================================================================
+# ใช้ Role ไม่ใช่ ClusterRole โดยตั้งใจ
+# สิทธิ์จึงหยุดอยู่แค่ namespace นี้ ต่อให้ token หลุดก็แตะ namespace vertex
+# หรือ kube-system ไม่ได้
+#
+# 🔸 จงใจไม่ให้สิทธิ์สร้าง ClusterRole / ClusterRoleBinding
+#    ถ้าให้ CI/CD สร้าง ClusterRole ได้ มันจะสร้าง ClusterRole ที่เป็น
+#    superuser แล้วผูกให้ตัวเองได้ — กลายเป็น admin ทั้ง cluster
+#    ซึ่งทำให้การจำกัด namespace ข้างบนไร้ความหมายทันที
+#
+#    ClusterRole ของ Filebeat จึงต้องให้ผู้ดูแลระบบ apply เองครั้งเดียว
+#    ตอน bootstrap ไม่ใช่ผ่าน pipeline
+#
+# 🔸 จงใจไม่ให้ลบ namespace
+#    ป้องกัน pipeline ที่เขียนผิดลบทุกอย่างทิ้ง
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-deployer
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: observability-deployer
+  namespace: observability
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+      - configmaps
+      - secrets
+      - persistentvolumeclaims
+      - serviceaccounts
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # อ่าน log ของ pod ได้ เพื่อให้ pipeline ตรวจผลหลัง deploy ได้เอง
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  # อ่านเพดานได้ เพื่อให้ pipeline บอกได้ว่า deploy ไม่ผ่านเพราะโควตาเต็ม
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: observability-deployer
+  namespace: observability
+subjects:
+  - kind: ServiceAccount
+    name: observability-deployer
+    namespace: observability
+roleRef:
+  kind: Role
+  name: observability-deployer
+  apiGroup: rbac.authorization.k8s.io
