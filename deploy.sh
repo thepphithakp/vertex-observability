@@ -89,6 +89,9 @@ kubectl apply -f kibana/03-import-job.yaml
 kubectl wait --for=condition=complete job/kibana-import -n "$NS" --timeout=10m
 kubectl logs job/kibana-import -n "$NS"
 
+say "Ingress"
+kubectl apply -f ingress/00-kibana-ingress.yaml
+
 # --- สรุป --------------------------------------------------------------------
 say "เรียบร้อย"
 kubectl get pods -n "$NS" -o wide

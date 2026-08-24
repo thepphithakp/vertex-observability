@@ -1,0 +1,72 @@
+# =============================================================================
+# Ingress ของ observability namespace
+# =============================================================================
+# ใช้ ingress-nginx controller ตัวเดียวกับทั้ง cluster (host เดียวกันทุก app
+# แยกกันด้วย path) เหมือน Jenkins, Grafana, admin-dashboard
+#
+# 🔴 ยอมรับความเสี่ยงเดียวกับ Jenkins/Grafana โดยตั้งใจ (2026-08-24)
+#    host นี้ชี้ไป IP สาธารณะจริง (ไม่ใช่แค่ LAN) และ ingress เปิดแค่ port 80
+#    ไม่มี TLS ของจริง (ไม่มี cert-manager ในคลัสเตอร์)
+#
+#    รหัสผ่าน login ของ Kibana จึงวิ่งเป็น plain text ในเครือข่าย
+#    เหมือนกับ Jenkins และ Grafana ที่เปิดอยู่แล้วบนโดเมนเดียวกัน
+#    ไม่ได้เพิ่มชั้นป้องกันที่ ingress (เช่น basic auth, IP allowlist)
+#    เพราะต้องการให้สอดคล้องกับของเดิมในคลัสเตอร์ ไม่ใช่เพิ่มมาตรฐานใหม่
+#    เฉพาะตัวนี้ตัวเดียว
+#
+#    ต่างจาก Jenkins/Grafana ตรงที่ login ของ Kibana คือ user `elastic`
+#    ซึ่งเป็น superuser ตัวเดียวกับที่ setup job และทุกอย่างใน ELK ใช้
+#    ถ้าจะเพิ่มชั้นป้องกันทีหลัง ให้เพิ่ม annotation
+#    nginx.ingress.kubernetes.io/auth-type ที่ ingress นี้ได้โดยไม่ต้องแก้ Kibana
+#
+# --- ทำไมไม่ rewrite path เหมือน admin-dashboard/pet-management -----------
+#    สอง app นั้นใช้ rewrite-target ตัด path prefix ออกก่อนถึง backend
+#    เพราะตัว app ไม่รู้จัก path ของตัวเอง
+#
+#    Kibana รู้จัก path ของตัวเองได้ผ่าน server.basePath (ตั้งใน
+#    kibana/02-deployment.yaml) จึงใช้แพทเทิร์นเดียวกับ Jenkins คือ
+#    ส่ง path เต็มเข้าไปตรงๆ ไม่ rewrite — ถ้า rewrite แล้ว Kibana จะ generate
+#    URL ของ asset (JS/CSS) ผิด เพราะคิดว่าตัวเองอยู่ที่ root
+#
+# --- เผื่อ route ในอนาคต ----------------------------------------------------
+#    เพิ่ม path ใหม่ในลิสต์ paths ด้านล่างได้เลย ทุก path ต้องชี้ไป service
+#    ที่อยู่ใน namespace `observability` เท่านั้น (ข้อจำกัดของ Ingress
+#    resource — อ้าง service ข้าม namespace ไม่ได้)
+#
+#    ตัวอย่างที่อาจเพิ่มในอนาคต
+#      /elasticsearch  → service elasticsearch:9200  (ถ้าต้องการ REST API
+#                         จากภายนอก — ควรมี auth เพิ่มเพราะเป็น API ไม่ใช่ UI)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: observability-ingress
+  namespace: observability
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # response ของ Kibana (เฉพาะหน้า Discover ที่มี log เยอะ) ใหญ่กว่า default
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+spec:
+  # ใช้ spec.ingressClassName ไม่ใช่ annotation kubernetes.io/ingress.class
+  # ที่เป็นรูปแบบเก่าที่ deprecated แล้ว (เห็น warning ตอน apply)
+  ingressClassName: nginx
+  rules:
+    # __INGRESS_HOST__ ถูกแทนที่ตอน deploy.sh apply ด้วยตัวแปร
+    # $INGRESS_HOST — ไม่ hardcode hostname จริงไว้ในไฟล์ที่ commit
+    # เพราะ repo นี้เป็น public ดู README หัวข้อ "ก่อนเริ่ม"
+    - host: __INGRESS_HOST__
+      http:
+        paths:
+          # --- Kibana ---------------------------------------------------
+          - path: /kibana
+            pathType: Prefix
+            backend:
+              service:
+                name: kibana
+                port:
+                  number: 5601
+          # --- เพิ่ม route ใหม่ตรงนี้ -------------------------------------
+          # - path: /observability/<ชื่อ>
+          #   pathType: Prefix
+          #   backend:
+          #     service: { name: <service-name>, port: { number: <port> } }

@@ -51,10 +51,27 @@ spec:
                   key: KIBANA_SYSTEM_PASSWORD
             - name: SERVER_HOST
               value: "0.0.0.0"
-            # ถ้าไม่ตั้ง Kibana จะเตือนทุกครั้งที่ start และฟีเจอร์ที่ต้องสร้าง
-            # ลิงก์ (เช่น share, alerting) จะสร้าง URL ผิด
+            # 🔴 ต้องตั้งคู่กัน — Kibana ถูก expose ที่ /kibana ผ่าน
+            # ingress/00-kibana-ingress.yaml ที่ "ไม่ rewrite path" (ต่างจาก
+            # admin-dashboard/pet-management ที่ rewrite ตัด prefix ออก)
+            #
+            # basePath บอก Kibana ว่าตัวเองอยู่ใต้ path นี้ · rewriteBasePath
+            # บอกว่า request ที่เข้ามามี path นี้ติดมาด้วยอยู่แล้ว (เพราะ
+            # ingress ไม่ได้ตัดออกให้) ให้ Kibana ตัดเองก่อน route ภายใน
+            #
+            # ถ้าตั้งแค่ basePath โดยไม่ตั้ง rewriteBasePath: true
+            # Kibana จะตัด path ซ้ำสอง route ภายในจะหาไม่เจอ ได้ 404 ทุกหน้า
+            - name: SERVER_BASEPATH
+              value: "/kibana"
+            - name: SERVER_REWRITEBASEPATH
+              value: "true"
+            # ต้องเป็น URL เต็มที่ผ่าน ingress จริง ไม่ใช่ localhost
+            # ไม่งั้นลิงก์ share และ alerting จะสร้าง URL ที่เข้าจากนอกไม่ได้
+            # __INGRESS_HOST__ ถูกแทนที่ตอน deploy.sh apply (ดู $INGRESS_HOST)
+            # ไม่ hardcode hostname จริงไว้ในไฟล์ที่ commit เพราะ repo นี้
+            # เป็น public — hostname จริงเป็นข้อมูลที่ควรรู้แค่คนดูแลระบบ
             - name: SERVER_PUBLICBASEURL
-              value: "http://localhost:5601"
+              value: "http://__INGRESS_HOST__/kibana"
             # จำกัด heap ของ Node.js ให้ต่ำกว่า container limit
             # ไม่งั้น Node จะโตจนโดน OOMKilled แทนที่จะ GC ตัวเอง
             - name: NODE_OPTIONS
@@ -68,13 +85,13 @@ spec:
           # Kibana start ช้าเพราะต้องรอ Elasticsearch พร้อมก่อน
           startupProbe:
             httpGet:
-              path: /api/status
+              path: /kibana/api/status
               port: 5601
             periodSeconds: 10
             failureThreshold: 30
           readinessProbe:
             httpGet:
-              path: /api/status
+              path: /kibana/api/status
               port: 5601
             periodSeconds: 15
             failureThreshold: 3
