@@ -78,6 +78,17 @@ kubectl apply -f kibana/01-service.yaml
 kubectl apply -f kibana/02-deployment.yaml
 kubectl rollout status deployment/kibana -n "$NS" --timeout=10m
 
+say "data view + saved search ของ Kibana"
+# ตั้งค่าเหล่านี้อยู่ใน git ไม่ใช่กดเอาในหน้าจอ
+# ตั้ง cluster ใหม่แล้วได้ Discover ที่ใช้งานได้ทันทีโดยไม่ต้องจำว่าเคยตั้งอะไร
+kubectl create configmap kibana-saved-objects -n "$NS" \
+  --from-file=kibana/saved-objects.ndjson \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl delete job kibana-import -n "$NS" --ignore-not-found
+kubectl apply -f kibana/03-import-job.yaml
+kubectl wait --for=condition=complete job/kibana-import -n "$NS" --timeout=10m
+kubectl logs job/kibana-import -n "$NS"
+
 # --- สรุป --------------------------------------------------------------------
 say "เรียบร้อย"
 kubectl get pods -n "$NS" -o wide

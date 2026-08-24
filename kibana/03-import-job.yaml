@@ -1,0 +1,76 @@
+# =============================================================================
+# Job นำ saved objects ของ Kibana กลับเข้าไป — รันซ้ำได้เสมอ
+# =============================================================================
+# data view · column เริ่มต้น · saved search ต้องอยู่ใน git ไม่ใช่กดเอาในหน้าจอ
+# ไม่งั้นตั้ง cluster ใหม่แล้วต้องมานั่งกดซ้ำ และจำไม่ได้ว่าเคยตั้งอะไรไว้
+#
+# ต้องสร้าง ConfigMap ก่อน apply job นี้
+#   kubectl create configmap kibana-saved-objects -n observability \
+#     --from-file=kibana/saved-objects.ndjson \
+#     --dry-run=client -o yaml | kubectl apply -f -
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kibana-import
+  namespace: observability
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: objects
+          configMap:
+            name: kibana-saved-objects
+      containers:
+        - name: import
+          image: curlimages/curl:8.11.0
+          env:
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: es-credentials, key: ELASTIC_PASSWORD }
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { memory: 64Mi }
+          volumeMounts:
+            - { name: objects, mountPath: /objects, readOnly: true }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              K=http://kibana:5601
+              AUTH="elastic:${ELASTIC_PASSWORD}"
+
+              echo "==> รอ Kibana พร้อม"
+              n=0
+              until curl -sf -u "$AUTH" "$K/api/status" >/dev/null 2>&1; do
+                n=$((n+1))
+                [ "$n" -gt 60 ] && { echo "FATAL: รอ Kibana เกิน 5 นาที" >&2; exit 1; }
+                sleep 5
+              done
+
+              # overwrite=true ทำให้รันซ้ำได้ ของเดิมถูกเขียนทับด้วยของใน git
+              # ซึ่งเป็นสิ่งที่ต้องการ — git คือแหล่งความจริง ไม่ใช่สิ่งที่กดในหน้าจอ
+              echo "==> import saved objects"
+              curl -sS --fail-with-body -u "$AUTH" -H 'kbn-xsrf: true' \
+                -X POST "$K/api/saved_objects/_import?overwrite=true" \
+                -F file=@/objects/saved-objects.ndjson
+              echo
+
+              # column เริ่มต้นเป็น advanced setting ไม่ได้อยู่ใน saved objects
+              # ถ้าไม่ตั้ง Discover จะโชว์ _source เป็นก้อน JSON ยาวที่อ่านไม่รู้เรื่อง
+              echo "==> ตั้ง column เริ่มต้นและเขตเวลา"
+              curl -sS --fail-with-body -u "$AUTH" -H 'kbn-xsrf: true' \
+                -H 'Content-Type: application/json' \
+                -X POST "$K/api/kibana/settings" \
+                -d '{"changes":{
+                      "defaultIndex":"87fd42cb-c495-4f6c-86a9-1fb9d92377d7",
+                      "defaultColumns":["kubernetes.deployment.name",
+                                        "error_severity","status","message"],
+                      "discover:sampleSize":500,
+                      "dateFormat:tz":"Asia/Bangkok"}}' >/dev/null
+              echo
+              echo "==> เสร็จเรียบร้อย"
