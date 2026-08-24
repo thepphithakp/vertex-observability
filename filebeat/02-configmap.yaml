@@ -27,6 +27,27 @@ data:
           node: ${NODE_NAME}
           scope: node
           namespace: vertex
+
+          # 🔸 ต้องเปิด deployment เอง — provider ไม่เปิดให้โดยค่าเริ่มต้น
+          #
+          # ชื่อ pod อย่าง pet-service-779c676458-j6gqg บอกไม่ได้ว่ามาจาก
+          # deployment ไหน เพราะมีเลข hash ต่อท้ายที่เปลี่ยนทุกครั้งที่ deploy
+          #
+          # ถ้าไม่มีฟิลด์นี้ การกรองใน Discover ว่า "ขอ log ของ pet-service
+          # ทั้งหมด" จะทำไม่ได้ ต้องไล่กรองทีละชื่อ pod ซึ่งเปลี่ยนไปเรื่อยๆ
+          #
+          # อาการคือฟิลด์หายไปเงียบๆ ไม่มี error ไม่ใช่ปัญหา RBAC
+          # แม้จะให้สิทธิ์อ่าน replicasets ไว้แล้วก็ตาม
+          #
+          # namespace metadata ปิดไว้เพราะเก็บ log แค่ namespace เดียว
+          # label ของ namespace จึงเหมือนกันทุก document ไม่มีประโยชน์
+          # ปิดที่ต้นทางดีกว่าไปตัดทีหลังด้วย drop_fields
+          add_resource_metadata:
+            deployment: true
+            cronjob: false
+            namespace:
+              enabled: false
+
           templates:
             - condition:
                 equals:
@@ -36,6 +57,20 @@ data:
                   id: vertex-${data.kubernetes.container.id}
                   paths:
                     - /var/log/containers/*-${data.kubernetes.container.id}.log
+
+                  # 🔴 ต้องเปิด ไม่งั้นไม่เก็บอะไรเลยแบบเงียบสนิท
+                  #
+                  # ไฟล์ใน /var/log/containers เป็น symlink ชี้ไป /var/log/pods
+                  # ส่วน input แบบ filestream "ไม่ตาม symlink" โดยค่าเริ่มต้น
+                  #
+                  # อาการคือ Filebeat ขึ้นเป็น Running ปกติ autodiscover เจอ pod
+                  # ครบ สร้าง input ครบ ไม่มี error สักบรรทัด แต่ harvester
+                  # เปิดไฟล์ได้ 0 ไฟล์ และไม่มี document ไปถึง Elasticsearch เลย
+                  #
+                  # ดูได้จาก metric ที่ Filebeat พ่นทุก 30 วินาที
+                  #   filebeat.harvester.open_files ต้องมากกว่า 0
+                  prospector.scanner.symlinks: true
+
                   parsers:
                     # containerd เขียน log เป็นรูปแบบ CRI
                     #   <เวลา> <stream> <flag> <ข้อความจริง>
@@ -124,7 +159,18 @@ data:
     logging.level: info
     logging.to_files: false
 
-    # เปิด endpoint สำหรับ health check ของ probe
+    # endpoint สำหรับ health check ของ probe
+    #
+    # 🔴 ต้องเป็น 0.0.0.0 ไม่ใช่ 127.0.0.1
+    #    kubelet ต่อ probe เข้ามาที่ pod IP ไม่ใช่ loopback ของ container
+    #    ถ้าฟังแค่ 127.0.0.1 probe จะล้มเหลวทุกครั้ง แล้ว Filebeat
+    #    จะถูกฆ่าทุก ~2 นาทีจนเข้า CrashLoopBackOff
+    #
+    #    อาการหลอกมาก: kubectl rollout status รายงานว่าสำเร็จ
+    #    เพราะตอนนั้น pod ยัง Ready อยู่จริง แล้วค่อยตายทีหลัง
+    #
+    #    endpoint นี้ให้แค่ metric ภายใน ไม่มีข้อมูลความลับ
+    #    และเป็นทางที่ Prometheus จะเข้ามา scrape ได้ในอนาคต
     http.enabled: true
-    http.host: 127.0.0.1
+    http.host: 0.0.0.0
     http.port: 5066

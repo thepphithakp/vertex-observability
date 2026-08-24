@@ -67,14 +67,16 @@ spec:
               memory: 100Mi
             limits:
               memory: 200Mi
+          # ไม่ระบุ host เพื่อให้ probe ใช้ pod IP ตามค่าเริ่มต้น
+          # ตั้งหลวมกว่าค่าปกติเพราะ Filebeat ตอนเริ่มต้องรอ autodiscover
+          # คุยกับ API ของ k8s ให้เสร็จก่อน ถ้า probe ไวเกินจะฆ่าทิ้งระหว่างนั้น
           livenessProbe:
             httpGet:
               path: /
               port: 5066
-              host: 127.0.0.1
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 30
-            failureThreshold: 3
+            failureThreshold: 5
           volumeMounts:
             - name: config
               mountPath: /etc/filebeat.yml
