@@ -14,6 +14,14 @@
     },
     "mappings": {
       "dynamic": "runtime",
+      "runtime": {
+        "latency_ms": {
+          "type": "double",
+          "script": {
+            "source": "if (doc['latency'].size() != 0) { emit(doc['latency'].value / 1000000.0) }"
+          }
+        }
+      },
       "properties": {
         "@timestamp": {
           "type": "date"
@@ -84,11 +92,32 @@
         "path": {
           "type": "keyword"
         },
+        "endpoint": {
+          "type": "keyword"
+        },
         "status": {
           "type": "short"
         },
         "latency": {
+          "type": "long"
+        },
+        "ip": {
           "type": "keyword"
+        },
+        "user_id": {
+          "type": "keyword"
+        },
+        "source_system": {
+          "type": "keyword"
+        },
+        "device_id": {
+          "type": "keyword"
+        },
+        "req_body": {
+          "type": "match_only_text"
+        },
+        "res_body": {
+          "type": "match_only_text"
         },
         "time": {
           "type": "keyword"
