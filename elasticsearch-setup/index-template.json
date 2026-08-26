@@ -101,6 +101,18 @@
         "latency": {
           "type": "long"
         },
+        "operation": {
+          "type": "keyword"
+        },
+        "depth": {
+          "type": "long"
+        },
+        "complexity": {
+          "type": "long"
+        },
+        "rejected": {
+          "type": "keyword"
+        },
         "ip": {
           "type": "keyword"
         },
