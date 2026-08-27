@@ -1,0 +1,128 @@
+# =============================================================================
+# ค่าของ kube-prometheus-stack ที่ใช้อยู่จริงบนคลัสเตอร์
+# =============================================================================
+# ไฟล์นี้ดึงมาจาก `helm -n monitoring get values prometheus-grafana` ของ release
+# ที่ติดตั้งด้วยมือไว้ก่อนหน้า แล้วตัดสองอย่างออกเพราะ repo นี้เป็น public:
+#
+#   1. grafana.adminPassword   — เดิมเป็น plain text อยู่ใน release
+#                                ย้ายไปอ่านจาก Secret แทน (ดู deploy.sh)
+#   2. hostname จริงของ ingress — ส่งตอน deploy ผ่าน $INGRESS_HOST
+#
+# ⚠️ ห้ามใส่ค่าจริงของสองอย่างนั้นกลับลงมาในไฟล์นี้เด็ดขาด
+#
+# แก้ไฟล์นี้แล้วต้องรัน ./deploy.sh ในโฟลเดอร์นี้ ไม่ใช่แก้ผ่าน UI หรือ
+# helm upgrade มือเปล่า ไม่งั้นของบนคลัสเตอร์กับใน git จะห่างกันอีกรอบ
+# =============================================================================
+
+global:
+  rbac:
+    create: true
+
+# --- Prometheus -------------------------------------------------------------
+prometheus:
+  enabled: true
+  prometheusSpec:
+    # เก็บ 14 วัน — ยาวกว่านี้ node เดียวรับไม่ไหว และ ELK เก็บ log ไว้แค่ 7 วันอยู่แล้ว
+    retention: 14d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 100Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# --- Alertmanager -----------------------------------------------------------
+#
+# ⚠️ receiver ยังเป็น "null" ตามค่า default ของ chart
+#    alert ที่ยิงจะไปโผล่แค่ใน UI ไม่มีอะไรส่งเข้ามือถือหรืออีเมล
+#    ต้องเลือกปลายทางก่อน (email / Slack / LINE / Discord) แล้วค่อยเติม
+#    alertmanager.config.receivers ตรงนี้
+alertmanager:
+  enabled: true
+  apiVersion: v2
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 100Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+
+# --- Grafana ----------------------------------------------------------------
+grafana:
+  enabled: true
+  # รหัสผ่าน admin อ่านจาก Secret ที่สร้างไว้นอก chart — ไม่เก็บใน git
+  # สร้างด้วย kubectl (ดู README) แล้ว chart จะอ่าน key admin-user / admin-password
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: true
+    accessModes: ["ReadWriteOnce"]
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # host จริงเติมตอน deploy ผ่าน --set (ดู deploy.sh)
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    path: /grafana
+    pathType: Prefix
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/grafana/"
+      serve_from_sub_path: true
+    security:
+      # เปิดไว้เพราะเคยล็อกตัวเองออกจากการ login ผิดหลายครั้งตอนตั้งค่า
+      # ยอมรับความเสี่ยงชุดเดียวกับ Jenkins/Kibana ที่อยู่บนโดเมนเดียวกัน
+      disable_brute_force_login_protection: true
+
+# --- ส่วนที่ปิดไว้ตั้งแต่แรก -------------------------------------------------
+# cluster นี้รวม control plane component ไว้ในโปรเซสเดียวและไม่ได้เปิด metrics
+# endpoint แยกให้ดึง
+# เปิดไว้จะได้ target ที่ down ค้างตลอดเวลาจนกลบของที่พังจริง
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+kubeStateMetrics:
+  enabled: true
+nodeExporter:
+  enabled: true

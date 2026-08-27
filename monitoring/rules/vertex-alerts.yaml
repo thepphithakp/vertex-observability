@@ -1,0 +1,166 @@
+# =============================================================================
+# Alert ของ Vertex
+# =============================================================================
+# ⚠️ label `release: prometheus-grafana` ห้ามหาย
+#    Prometheus เลือก rule ด้วย ruleSelector: {matchLabels: {release: prometheus-grafana}}
+#    ไม่มี label นี้ = rule ถูกสร้างแต่ไม่มีใครอ่าน และไม่มีอะไรฟ้อง
+#    ตรวจได้ด้วย kubectl get prometheus -A -o jsonpath='{.items[*].spec.ruleSelector}'
+#
+# ⚠️ ตอนนี้ Alertmanager ตั้ง receiver เป็น "null" — alert ที่ยิงจะไปโผล่แค่ใน UI
+#    ไม่มีอะไรส่งเข้ามือถือหรืออีเมล ต้องตั้ง receiver ก่อนถึงจะรู้ตัวโดยไม่ต้องเปิดดูเอง
+#
+# หลักที่ใช้เลือกว่าอะไรควรเป็น alert:
+#   - ต้องเป็นอาการที่ "มีคนต้องลุกมาทำอะไรสักอย่าง" ไม่ใช่แค่ตัวเลขน่าสนใจ
+#   - ต้องทนต่อ traffic ที่บางมากได้ ระบบนี้มีผู้ใช้ไม่กี่คน ช่วงดึกแทบไม่มี request เลย
+#     ถ้าตั้ง alert จากสัดส่วนโดยไม่ดูจำนวนดิบ error เดียวตอนตีสามจะกลายเป็น 100%
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vertex-alerts
+  namespace: vertex
+  labels:
+    release: prometheus-grafana
+    app.kubernetes.io/part-of: vertex
+spec:
+  groups:
+    - name: vertex.availability
+      rules:
+        # alert ที่สำคัญที่สุดในไฟล์นี้
+        #
+        # pet-service เคยอยู่ในสถานะนี้เป็นเวลานานโดยไม่มีใครรู้ — /metrics ตอบ 500
+        # จาก label ที่เพี้ยน ขณะที่ ServiceMonitor เขียว pod Ready และ CD ก็เขียว
+        # ไม่มีสัญญาณอื่นเลยนอกจากค่านี้ (VT-109)
+        - alert: VertexMetricsScrapeDown
+          expr: up{namespace="vertex"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus ดึง metric จาก {{ $labels.job }} ไม่ได้"
+            description: >-
+              ดึง /metrics ของ {{ $labels.job }} (pod {{ $labels.pod }}) ไม่ได้มา 5 นาทีแล้ว
+              ตัว service อาจยังทำงานปกติอยู่ แต่กราฟทุกแผงของมันจะว่าง
+              และ alert ตัวอื่นที่พึ่ง metric ของมันจะเงียบไปด้วย
+            runbook: >-
+              ยิง /metrics ตรงๆ จากในคลัสเตอร์เพื่อดู error จริง
+              kubectl run tmp -n vertex --restart=Never --image=curlimages/curl --command --
+              curl -s http://{{ $labels.job }}/metrics
+
+        # ไม่มี pod พร้อมใช้งานเลย = ผู้ใช้เจอ 503
+        - alert: VertexServiceHasNoReadyPod
+          expr: kube_deployment_status_replicas_available{namespace="vertex"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.deployment }} ไม่มี pod ที่พร้อมใช้งานเลย"
+            description: >-
+              ไม่มี pod ที่ผ่าน readiness มา 3 นาที ผู้ใช้ที่เรียก service นี้จะได้ 503
+            runbook: "kubectl -n vertex describe deploy {{ $labels.deployment }} แล้วดู event กับ log ของ pod ล่าสุด"
+
+        # restart วนซ้ำมักแปลว่า config ผิดหรือ dependency ล่ม ไม่ใช่ความบังเอิญ
+        - alert: VertexPodRestartLoop
+          expr: increase(kube_pod_container_status_restarts_total{namespace="vertex"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.pod }} restart ซ้ำหลายรอบ"
+            description: "restart มากกว่า 3 ครั้งใน 15 นาที — ดู log ของ container ก่อนหน้าด้วย kubectl logs --previous"
+
+    - name: vertex.http
+      rules:
+        # ใช้ทั้งสัดส่วนและจำนวนดิบคู่กัน
+        #
+        # ระบบนี้มีผู้ใช้ไม่กี่คน ตอนตีสามอาจมี request เดียวทั้งชั่วโมง
+        # ถ้าดูแต่สัดส่วน error เดียวจะกลายเป็น 100% แล้วปลุกคนทั้งที่ไม่มีอะไรพัง
+        # เงื่อนไข > 0.05 req/s แปลว่าอย่างน้อยราว 3 error ต่อนาที
+        - alert: VertexHighErrorRate
+          expr: |
+            (
+              sum by (job) (rate(http_requests_total{namespace="vertex",status=~"5.."}[10m])) > 0.05
+            )
+            and
+            (
+              sum by (job) (rate(http_requests_total{namespace="vertex",status=~"5.."}[10m]))
+              /
+              sum by (job) (rate(http_requests_total{namespace="vertex"}[10m])) > 0.05
+            )
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.job }} ตอบ 5xx เกิน 5% ของ request ทั้งหมด"
+            description: "ค้างมา 10 นาที — หา requestId จาก Kibana แล้วไล่ตาม request path ที่พัง"
+
+        # ช้าลงแบบค้างนานมักมาจาก database หรือ CPU ที่ถูกบีบ
+        # (VT-103: บีบ CPU ของ auth-service ไว้ 0.1 core ทำให้ bcrypt ช้าสิบเท่า)
+        - alert: VertexHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (job, le) (rate(http_request_duration_seconds_bucket{namespace="vertex"}[10m]))
+            ) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} ช้า — p95 เกิน 2 วินาที"
+            description: "ดูว่า CPU ถูก throttle อยู่ไหมก่อนเป็นอันดับแรก แล้วค่อยดู query ของ database"
+
+    - name: vertex.outbox
+      rules:
+        # outbox ที่ค้างแปลว่า event ไม่ถึงปลายทาง — back office จะเห็นข้อมูลไม่ครบ
+        # โดยที่ฝั่งผู้ใช้ยังใช้งานได้ปกติ จึงไม่มีใครมาบ่นให้รู้
+        - alert: VertexOutboxBacklog
+          expr: outbox_pending_count{namespace="vertex"} > 20
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "event ใน outbox ค้างมากกว่า 20 รายการ"
+            description: >-
+              worker ส่งไม่ทันหรือ event-service มีปัญหา · ค่านี้ควรวนกลับมาใกล้ 0 เสมอ
+            runbook: >-
+              SELECT id, event_type, attempts, last_error FROM pet.event_outbox
+              WHERE published_at IS NULL AND attempts >= 5 ORDER BY next_attempt_at;
+
+        # ครบ 12 ครั้งแล้ว worker จะหยุดลองเอง ถ้าไม่มี alert จะเงียบไปเลย
+        - alert: VertexOutboxDeliveryFailing
+          expr: rate(outbox_deliveries_total{namespace="vertex",result="failure"}[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "การส่ง event ล้มเหลวต่อเนื่อง"
+            description: "ส่งไม่สำเร็จติดต่อกัน 15 นาที — ดู last_error ใน pet.event_outbox แล้วแก้ต้นเหตุก่อน reset attempts"
+
+    - name: vertex.graphql
+      rules:
+        # ตัวเลขนี้ตีความได้สองทางและต้องรีบรู้ทั้งคู่
+        # ทางหนึ่งคือมีคนยิงถล่ม อีกทางคือเพดานตั้งแน่นเกินจนผู้ใช้จริงโดนไปด้วย
+        - alert: VertexGraphQLGuardrailRejecting
+          expr: sum by (reason) (rate(graphql_rejected_total[10m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GraphQL ปฏิเสธ query ต่อเนื่อง (สาเหตุ {{ $labels.reason }})"
+            description: >-
+              ถ้า reason เป็น complexity หรือ depth ให้ดูก่อนว่าเป็น operation ของแอปเราเอง
+              (แปลว่าเพดานแน่นเกิน) หรือเป็นชื่อที่ไม่รู้จัก (แปลว่ามีคนยิงมั่ว)
+              กรอง operation ใน Kibana จาก field `rejected`
+
+        # query ของแอปจริงตัวแพงสุดราคา 1221 ส่วนเพดานอยู่ที่ 5000
+        # ถ้า p95 ไต่ขึ้นมาใกล้เพดานแปลว่าใกล้จะมีผู้ใช้โดนบล็อกแล้ว
+        - alert: VertexGraphQLComplexityNearLimit
+          expr: |
+            histogram_quantile(0.95,
+              sum by (operation, le) (rate(graphql_operation_complexity_bucket[30m]))
+            ) > 4000
+          for: 30m
+          labels:
+            severity: info
+          annotations:
+            summary: "ราคาของ {{ $labels.operation }} เข้าใกล้เพดาน 5000 แล้ว"
+            description: "ทบทวนว่าจะปรับ query ให้ขอน้อยลง หรือขยับเพดานจากตัวเลขจริง"

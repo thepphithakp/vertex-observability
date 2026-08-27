@@ -205,3 +205,10 @@ public repository มาแล้วในโปรเจกต์นี้ (VT-
 kube-prometheus-stack ไม่ต้องใช้รหัสผ่าน Grafana และ dashboard อยู่ใน git ได้
 
 รายละเอียดอยู่ใน `grafana/README.md`
+
+## Monitoring stack (Prometheus + Grafana + Alertmanager)
+
+`monitoring/` — ค่าที่ใช้จริงของ kube-prometheus-stack พร้อม alert rule ของ Vertex
+
+เดิม stack นี้ถูกติดตั้งด้วยมือ ค่าอยู่แต่ในคลัสเตอร์ ตอนนี้ดึงลงมาไว้ใน git แล้ว
+รายละเอียดอยู่ใน `monitoring/README.md`
