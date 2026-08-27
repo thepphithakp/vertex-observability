@@ -6,9 +6,6 @@
 #    ไม่มี label นี้ = rule ถูกสร้างแต่ไม่มีใครอ่าน และไม่มีอะไรฟ้อง
 #    ตรวจได้ด้วย kubectl get prometheus -A -o jsonpath='{.items[*].spec.ruleSelector}'
 #
-# ⚠️ ตอนนี้ Alertmanager ตั้ง receiver เป็น "null" — alert ที่ยิงจะไปโผล่แค่ใน UI
-#    ไม่มีอะไรส่งเข้ามือถือหรืออีเมล ต้องตั้ง receiver ก่อนถึงจะรู้ตัวโดยไม่ต้องเปิดดูเอง
-#
 # ⚠️ ทุก expression ต้องเหลือ label `namespace` ติดออกมาด้วย
 #    AlertmanagerConfig ของ operator ใช้กลยุทธ์ OnNamespace — route ที่มาจาก CR
 #    ในnamespace vertex จะถูกบังคับให้ match เฉพาะ alert ที่มี namespace="vertex"

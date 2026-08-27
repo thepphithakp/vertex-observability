@@ -51,10 +51,10 @@ prometheusOperator:
 
 # --- Alertmanager -----------------------------------------------------------
 #
-# ⚠️ receiver ยังเป็น "null" ตามค่า default ของ chart
-#    alert ที่ยิงจะไปโผล่แค่ใน UI ไม่มีอะไรส่งเข้ามือถือหรืออีเมล
-#    ต้องเลือกปลายทางก่อน (email / Slack / LINE / Discord) แล้วค่อยเติม
-#    alertmanager.config.receivers ตรงนี้
+# ปลายทางของ alert ไม่ได้ตั้งตรงนี้ — อยู่ใน rules/alertmanager-discord.yaml
+# ซึ่งเป็น AlertmanagerConfig CR ทำให้เพิ่ม/แก้ route ได้โดยไม่ต้อง upgrade
+# ทั้ง stack และไม่ต้อง restart อะไร (ค่า default ของ chart ยังเป็น receiver "null"
+# ซึ่งกลายเป็นตัวรับ alert ที่ไม่ match route ไหนเลย)
 alertmanager:
   enabled: true
   apiVersion: v2
