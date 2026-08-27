@@ -23,14 +23,25 @@ kubectl -n monitoring create secret generic grafana-admin \
 INGRESS_HOST=your-domain.example.com ./deploy.sh
 ```
 
-## ⚠️ release ที่รันอยู่ตอนนี้ยังฝังรหัสผ่านเป็น plain text
+## กับดัก: `existingSecret` ไม่ได้เปลี่ยนรหัสของ user ที่มีอยู่แล้ว
 
-ค่าที่ดึงมาจากคลัสเตอร์มี `grafana.adminPassword` เป็นข้อความธรรมดาอยู่ใน helm release
-ใครที่อ่าน release ได้ก็เห็นรหัสผ่านทันที และถ้าเอา values ก้อนนั้นขึ้น repo public
-ก็หลุดสู่สาธารณะ — `values.yaml` ในโฟลเดอร์นี้จึงตัดออกแล้วเปลี่ยนไปใช้ Secret
+Grafana เขียนรหัส admin ลง `grafana.db` ตอนสร้าง user ครั้งแรก**ครั้งเดียว**
+หลังจากนั้น `GF_SECURITY_ADMIN_PASSWORD` ไม่มีผลอีกเลยตราบใดที่ PVC ยังอยู่
 
-**รันสคริปต์นี้ครั้งแรกจะเปลี่ยนรหัสผ่าน admin ของ Grafana** ไปเป็นค่าใน Secret
-ให้ตั้งรหัสใหม่ไปเลย ไม่ต้องเอาของเดิมมาใส่ เพราะของเดิมถือว่าหลุดแล้ว
+ตอนหมุนรหัสรอบแรกเจออาการนี้เต็มๆ — helm เขียว `adminPassword` หายจาก release แล้ว
+pod rollout สำเร็จ **แต่รหัสเก่าที่ถือว่าหลุดไปแล้วยังล็อกอินได้ ส่วนรหัสใหม่ตอบ 401**
+ถ้าไม่ลองล็อกอินจริงก็จะเข้าใจว่าหมุนรหัสเสร็จแล้วทั้งที่ยังไม่ได้หมุน
+
+`deploy.sh` จึงมีด่านที่ยิง `/api/user` ด้วยรหัสจาก Secret จริงๆ และ **fail ถ้าไม่ได้ 200**
+
+ถ้าด่านนี้ไม่ผ่าน ให้สั่งเปลี่ยนผ่าน API โดยยืนยันตัวตนด้วยรหัสเดิม (id ของ admin คือ 1)
+
+```sh
+curl -u admin:<รหัสเดิม> -X PUT -H 'Content-Type: application/json' \
+  -d '{"password":"<รหัสใหม่>"}' http://<grafana>/api/admin/users/1/password
+```
+
+แล้วรันสคริปต์ซ้ำ
 
 ## แก้อะไรก็ตาม ให้แก้ที่ไฟล์แล้วรันสคริปต์
 

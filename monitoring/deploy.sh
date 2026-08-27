@@ -54,6 +54,40 @@ helm upgrade --install "$RELEASE" prometheus-community/kube-prometheus-stack \
 say "ส่ง alert rule ของ Vertex"
 kubectl apply -f rules/
 
+say "ตรวจว่ารหัสผ่านใน Secret ใช้ล็อกอิน Grafana ได้จริง"
+# ⚠️ ด่านนี้จำเป็น เพราะ existingSecret ไม่ได้เปลี่ยนรหัสของ user ที่มีอยู่แล้ว
+#
+# Grafana เขียนรหัส admin ลง grafana.db ตอนสร้าง user ครั้งแรกครั้งเดียว
+# หลังจากนั้น GF_SECURITY_ADMIN_PASSWORD ไม่มีผลอีกเลย ตราบใดที่ PVC ยังอยู่
+# เคยเจอมาแล้ว: helm เขียว รหัสหายจาก release แล้ว pod rollout สำเร็จ
+# แต่รหัสเก่าที่ถือว่าหลุดไปแล้วยังล็อกอินได้อยู่ ส่วนรหัสใหม่ตอบ 401
+verify_pw() {
+  local pod="grafana-pwcheck-$RANDOM"
+  kubectl -n "$NS" run "$pod" --restart=Never --image=curlimages/curl:latest --quiet \
+    --overrides="{\"spec\":{\"volumes\":[{\"name\":\"p\",\"secret\":{\"secretName\":\"grafana-admin\"}}],\"containers\":[{\"name\":\"c\",\"image\":\"curlimages/curl:latest\",\"command\":[\"sh\",\"-c\",\"curl -s -o /dev/null -w '%{http_code}' -u admin:\$(tr -d '\\n' </p/admin-password) http://$RELEASE/api/user\"],\"volumeMounts\":[{\"name\":\"p\",\"mountPath\":\"/p\"}]}]}}" >/dev/null 2>&1
+  kubectl -n "$NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout=90s >/dev/null 2>&1 || true
+  local code; code=$(kubectl -n "$NS" logs "$pod" 2>/dev/null | tr -dc '0-9')
+  kubectl -n "$NS" delete pod "$pod" --wait=false >/dev/null 2>&1 || true
+  [ "$code" = "200" ]
+}
+
+if verify_pw; then
+  echo "  รหัสใน Secret ล็อกอินได้ (200)"
+else
+  cat >&2 <<'WARN'
+
+⚠️  รหัสผ่านใน Secret ล็อกอินไม่ได้ — user admin ถูกสร้างไว้ก่อนแล้ว
+    ค่าใน Secret จึงยังไม่มีผล และรหัสเดิมยังใช้ได้อยู่
+
+    สั่งเปลี่ยนผ่าน API โดยยืนยันตัวตนด้วยรหัสเดิม (id ของ admin คือ 1):
+      curl -u admin:<รหัสเดิม> -X PUT -H 'Content-Type: application/json' \
+        -d '{"password":"<รหัสใหม่>"}' http://<grafana>/api/admin/users/1/password
+
+    เสร็จแล้วรันสคริปต์นี้ซ้ำ ด่านนี้ต้องผ่านถึงจะถือว่าหมุนรหัสสำเร็จ
+WARN
+  exit 1
+fi
+
 say "ตรวจว่า Prometheus อ่าน rule เข้าไปจริง"
 # rule ที่ไม่มี label release=prometheus-grafana จะถูกสร้างแต่ไม่มีใครอ่าน
 # และไม่มีอะไรฟ้อง — ตรงนี้คือด่านเดียวที่จับได้
