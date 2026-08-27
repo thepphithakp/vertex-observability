@@ -1,7 +1,7 @@
 # vertex-observability
 
 Manifest ของระบบเก็บ log สำหรับ Vertex — Elasticsearch + Kibana + Filebeat
-รันบน k3s node เดียว เก็บ log ของ pod ใน namespace `vertex`
+รันบนคลัสเตอร์ node เดียว เก็บ log ของ pod ใน namespace `vertex`
 
 > แยกจาก repo ของ service ธุรกิจโดยตั้งใจ
 > การอัปเดต Elasticsearch ไม่ควรต้องแตะโค้ดของ pet-service
@@ -139,7 +139,7 @@ heap ของ Elasticsearch ตามจริง อาจต้องขย�
 
 ### `local-path` ไม่บังคับขนาด PVC — ILM คือเพดานจริง
 
-storageClass ที่ k3s ให้มาเป็นแค่ hostPath bind ขอ PVC 5 Gi แต่เขียนได้จนเต็ม disk
+storageClass ที่คลัสเตอร์นี้ใช้เป็นแค่ hostPath bind ขอ PVC 5 Gi แต่เขียนได้จนเต็ม disk
 
 สิ่งเดียวที่หยุดข้อมูลไม่ให้โตไปเรื่อยๆ คือ **ILM policy ที่ลบ log อายุเกิน 7 วัน**
 และตั้ง disk watermark ให้ Elasticsearch หยุดเขียนตั้งแต่ disk เต็ม 85%
