@@ -1,0 +1,70 @@
+# =============================================================================
+# ส่ง alert ของ Vertex เข้า Discord
+# =============================================================================
+# ใช้ AlertmanagerConfig CR แทนการแก้ค่าใน helm release เพราะ Alertmanager
+# ตั้ง alertmanagerConfigSelector เป็น {} ซึ่งแปลว่ารับ CR ทุกตัวทุก namespace
+# จึงเพิ่ม route ได้โดยไม่ต้อง upgrade ทั้ง stack และไม่ต้อง restart Prometheus
+#
+# ⚠️ operator ใช้กลยุทธ์ OnNamespace — route ที่มาจาก CR นี้จะถูกบังคับให้ match
+#    เฉพาะ alert ที่มี label namespace="vertex" ทุก rule ใน vertex-alerts.yaml
+#    จึงต้องเหลือ label นี้ติดออกมาด้วย (ดูหมายเหตุในไฟล์นั้น)
+#
+# ⚠️ URL ของ webhook อยู่ใน Secret ไม่ใช่ในไฟล์นี้
+#    ใครถือ URL นี้ก็โพสต์ลงห้องแชทได้ทันที และ repo นี้เป็น public
+#
+#    kubectl -n vertex create secret generic discord-alert-webhook \
+#      --from-literal=url='https://discord.com/api/webhooks/...'
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: vertex-discord
+  namespace: vertex
+  labels:
+    app.kubernetes.io/part-of: vertex
+spec:
+  route:
+    receiver: discord
+    # จัดกลุ่มตามชื่อ alert และ service — pod ตายพร้อมกันสามตัวควรได้ข้อความเดียว
+    # ไม่ใช่สามข้อความที่อ่านแล้วแยกไม่ออกว่าเรื่องเดียวกันหรือคนละเรื่อง
+    groupBy: ["alertname", "job"]
+    groupWait: 30s
+    groupInterval: 5m
+    # ย้ำทุก 4 ชั่วโมงถ้ายังไม่หาย — ถี่กว่านี้กลายเป็นสแปมจนเลิกอ่าน
+    # ซึ่งอันตรายกว่าไม่มี alert เพราะจะพลาดของจริงไปด้วย
+    repeatInterval: 4h
+    routes:
+      # critical ย้ำถี่กว่า เพราะเป็นอาการที่ผู้ใช้เจอผลจริงแล้ว
+      - receiver: discord
+        matchers:
+          - name: severity
+            value: critical
+        repeatInterval: 1h
+        groupWait: 10s
+      # info ไม่ต้องย้ำบ่อย เป็นเรื่องที่ค่อยๆ ดูก็ทัน
+      - receiver: discord
+        matchers:
+          - name: severity
+            value: info
+        repeatInterval: 24h
+
+  receivers:
+    - name: discord
+      discordConfigs:
+        - apiURL:
+            name: discord-alert-webhook
+            key: url
+          # ส่งตอนหายด้วย ไม่งั้นห้องแชทจะเต็มไปด้วยเรื่องที่จบไปแล้ว
+          # แล้วคนอ่านจะแยกไม่ออกว่าอันไหนยังค้างอยู่
+          sendResolved: true
+          title: '{{ if eq .Status "firing" }}🔴{{ else }}✅{{ end }} [{{ .CommonLabels.severity | toUpper }}] {{ .CommonLabels.alertname }}'
+          message: |-
+            {{ range .Alerts -}}
+            **{{ .Annotations.summary }}**
+            {{ .Annotations.description }}
+            {{ if .Annotations.runbook }}
+            ```
+            {{ .Annotations.runbook }}
+            ```
+            {{ end -}}
+            {{ end }}

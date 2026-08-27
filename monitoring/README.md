@@ -64,11 +64,34 @@ kubectl get prometheus -A -o jsonpath='{.items[*].spec.ruleSelector}'
 
 `deploy.sh` มีขั้นตรวจ label นี้ให้หลัง apply
 
-### 🔴 alert ยังไม่ถูกส่งไปไหน
+### alert ถูกส่งเข้า Discord
 
-Alertmanager ตั้ง `receiver: "null"` ตามค่า default ของ chart — alert ที่ยิงจะไป
-โผล่แค่ใน UI ของ Prometheus/Alertmanager เท่านั้น **ไม่มีอะไรเข้ามือถือหรืออีเมล**
+`rules/alertmanager-discord.yaml` เป็น **AlertmanagerConfig CR** ไม่ใช่การแก้ค่าใน
+helm release — Alertmanager ตั้ง `alertmanagerConfigSelector: {}` ซึ่งรับ CR ทุกตัว
+ทุก namespace จึงเพิ่ม route ได้โดยไม่ต้อง upgrade ทั้ง stack และไม่ต้อง restart อะไร
 
-แปลว่าตอนนี้ยังต้องเปิดดูเองอยู่ดี ซึ่งแก้ปัญหาได้แค่ครึ่งเดียว ต้องเลือกปลายทาง
-(email / Slack / LINE Notify / Discord webhook) แล้วเติม `alertmanager.config`
-ใน `values.yaml` — credential ของปลายทางต้องอยู่ใน Secret ไม่ใช่ในไฟล์นี้
+URL ของ webhook อยู่ใน Secret เท่านั้น ใครถือ URL ก็โพสต์ลงห้องแชทได้ทันที
+
+```sh
+kubectl -n vertex create secret generic discord-alert-webhook \
+  --from-literal=url='https://discord.com/api/webhooks/...'
+```
+
+| severity | ย้ำซ้ำทุก |
+|---|---|
+| critical | 1 ชั่วโมง |
+| warning | 4 ชั่วโมง |
+| info | 24 ชั่วโมง |
+
+ถี่กว่านี้จะกลายเป็นสแปมจนคนเลิกอ่าน ซึ่งอันตรายกว่าไม่มี alert เพราะจะพลาดของจริงไปด้วย
+
+**ส่งตอน alert หายด้วย** (`sendResolved`) ไม่งั้นห้องแชทจะเต็มไปด้วยเรื่องที่จบไปแล้ว
+แล้วแยกไม่ออกว่าอันไหนยังค้างอยู่
+
+#### กับดักที่สาม: OnNamespace
+
+operator บังคับ matcher `namespace="vertex"` ให้ route ที่มาจาก CR ในnamespace นี้
+**alert ที่เขียน `sum by (job)` เฉยๆ จะไม่มี label `namespace` แล้วหลุดไปหา receiver
+"null" เงียบๆ** โดยที่หน้า Alerts ของ Prometheus ยังขึ้นว่า firing ปกติ
+
+ทุก expression ใน `vertex-alerts.yaml` จึงต้องเหลือ label นี้ติดออกมาเสมอ

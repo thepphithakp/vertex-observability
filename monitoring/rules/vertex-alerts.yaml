@@ -9,6 +9,12 @@
 # ⚠️ ตอนนี้ Alertmanager ตั้ง receiver เป็น "null" — alert ที่ยิงจะไปโผล่แค่ใน UI
 #    ไม่มีอะไรส่งเข้ามือถือหรืออีเมล ต้องตั้ง receiver ก่อนถึงจะรู้ตัวโดยไม่ต้องเปิดดูเอง
 #
+# ⚠️ ทุก expression ต้องเหลือ label `namespace` ติดออกมาด้วย
+#    AlertmanagerConfig ของ operator ใช้กลยุทธ์ OnNamespace — route ที่มาจาก CR
+#    ในnamespace vertex จะถูกบังคับให้ match เฉพาะ alert ที่มี namespace="vertex"
+#    alert ที่เขียน sum by (job) เฉยๆ จะไม่มี label นี้ แล้วหลุดไปหา receiver
+#    "null" เงียบๆ โดยที่หน้า Alerts ยังขึ้นว่า firing ปกติ
+#
 # หลักที่ใช้เลือกว่าอะไรควรเป็น alert:
 #   - ต้องเป็นอาการที่ "มีคนต้องลุกมาทำอะไรสักอย่าง" ไม่ใช่แค่ตัวเลขน่าสนใจ
 #   - ต้องทนต่อ traffic ที่บางมากได้ ระบบนี้มีผู้ใช้ไม่กี่คน ช่วงดึกแทบไม่มี request เลย
@@ -79,13 +85,13 @@ spec:
         - alert: VertexHighErrorRate
           expr: |
             (
-              sum by (job) (rate(http_requests_total{namespace="vertex",status=~"5.."}[10m])) > 0.05
+              sum by (job, namespace) (rate(http_requests_total{namespace="vertex",status=~"5.."}[10m])) > 0.05
             )
             and
             (
-              sum by (job) (rate(http_requests_total{namespace="vertex",status=~"5.."}[10m]))
+              sum by (job, namespace) (rate(http_requests_total{namespace="vertex",status=~"5.."}[10m]))
               /
-              sum by (job) (rate(http_requests_total{namespace="vertex"}[10m])) > 0.05
+              sum by (job, namespace) (rate(http_requests_total{namespace="vertex"}[10m])) > 0.05
             )
           for: 10m
           labels:
@@ -99,7 +105,7 @@ spec:
         - alert: VertexHighLatency
           expr: |
             histogram_quantile(0.95,
-              sum by (job, le) (rate(http_request_duration_seconds_bucket{namespace="vertex"}[10m]))
+              sum by (job, namespace, le) (rate(http_request_duration_seconds_bucket{namespace="vertex"}[10m]))
             ) > 2
           for: 10m
           labels:
@@ -140,7 +146,7 @@ spec:
         # ตัวเลขนี้ตีความได้สองทางและต้องรีบรู้ทั้งคู่
         # ทางหนึ่งคือมีคนยิงถล่ม อีกทางคือเพดานตั้งแน่นเกินจนผู้ใช้จริงโดนไปด้วย
         - alert: VertexGraphQLGuardrailRejecting
-          expr: sum by (reason) (rate(graphql_rejected_total[10m])) > 0.1
+          expr: sum by (reason, namespace) (rate(graphql_rejected_total[10m])) > 0.1
           for: 10m
           labels:
             severity: warning
@@ -156,7 +162,7 @@ spec:
         - alert: VertexGraphQLComplexityNearLimit
           expr: |
             histogram_quantile(0.95,
-              sum by (operation, le) (rate(graphql_operation_complexity_bucket[30m]))
+              sum by (operation, namespace, le) (rate(graphql_operation_complexity_bucket[30m]))
             ) > 4000
           for: 30m
           labels:
