@@ -198,3 +198,10 @@ public repository มาแล้วในโปรเจกต์นี้ (VT-
 
 ไฟล์ `elasticsearch/00-secret.example.yaml` มีแต่ค่า `REPLACE_ME`
 รหัสจริงถูกสร้างโดย `deploy.sh` และอยู่ใน k8s Secret เท่านั้น ไม่เคยลงไฟล์
+
+## Grafana dashboard
+
+`grafana/vertex-overview.json` + `./deploy-dashboard.sh` — โหลดผ่าน sidecar ของ
+kube-prometheus-stack ไม่ต้องใช้รหัสผ่าน Grafana และ dashboard อยู่ใน git ได้
+
+รายละเอียดอยู่ใน `grafana/README.md`

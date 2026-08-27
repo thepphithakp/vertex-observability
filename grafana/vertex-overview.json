@@ -1,0 +1,663 @@
+{
+  "uid": "vertex-overview",
+  "title": "Vertex — ภาพรวมทั้งระบบ",
+  "tags": [
+    "vertex"
+  ],
+  "timezone": "Asia/Bangkok",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "label": "Datasource"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "service ที่ Prometheus ดึงได้จริง",
+      "type": "stat",
+      "description": "1 = ดึงได้ · 0 = ดึงไม่ได้\\n\\npet-service เคยขึ้น 0 อยู่นานโดยไม่มีใครรู้ เพราะ /metrics ตอบ 500 จาก label ที่เพี้ยน ส่วน ServiceMonitor ยังเขียวอยู่ — แผงนี้คือที่เดียวที่บอกได้",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "up{namespace=\"vertex\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "ดึงไม่ได้",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "ปกติ",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 2,
+      "title": "request ต่อวินาที แยกตาม service",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (job) (rate(http_requests_total{namespace=\"vertex\"}[5m]))",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "GraphQL operation ต่อวินาที",
+      "type": "timeseries",
+      "description": "BFF ทุก request เป็น POST /graphql เส้นเดียว จึงต้องแยกด้วย operation",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (rate(graphql_operations_total[5m]))",
+          "legendFormat": "{{operation}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "error rate (5xx) แยกตาม service",
+      "type": "timeseries",
+      "description": "ควรเป็นศูนย์ตลอด ขึ้นเมื่อไหร่คือมีอะไรพังจริง",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (job) (rate(http_requests_total{namespace=\"vertex\",status=~\"5..\"}[5m]))",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "latency p95 แยกตาม service",
+      "type": "timeseries",
+      "description": "ใช้เทียบก่อน/หลังการแก้ แทนการเดาว่าเร็วขึ้นหรือเปล่า (บทเรียนจาก VT-103)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket{namespace=\"vertex\"}[5m])))",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "latency p95 ของ endpoint ที่ช้าที่สุด 10 อันดับ",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (job, route, le) (rate(http_request_duration_seconds_bucket{namespace=\"vertex\"}[5m]))))",
+          "legendFormat": "{{job}} {{route}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "request ที่กำลังทำงานอยู่",
+      "type": "timeseries",
+      "description": "ค้างสูงต่อเนื่องแปลว่ามี request ที่ไม่จบ ไม่ใช่แค่ traffic เยอะ",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (job) (http_requests_in_flight{namespace=\"vertex\"})",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "GraphQL — query ที่ถูก guardrail กัน",
+      "type": "timeseries",
+      "description": "ของที่โดนกันคือของที่อยากเห็นที่สุด\\n\\nขึ้นแปลว่ามีคนยิงถล่ม หรือเพดานตั้งแน่นเกินจนผู้ใช้จริงโดนไปด้วย ซึ่งต้องรีบรู้ทั้งคู่",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(graphql_rejected_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "GraphQL — ราคาของ query (p95) เทียบเพดาน 5000",
+      "type": "timeseries",
+      "description": "ใช้ตั้งเพดานจากข้อมูลจริงแทนการเดา — LitterDay ที่ขอ 200 แถวราคา 1221",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 22,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (operation, le) (rate(graphql_operation_complexity_bucket[5m])))",
+          "legendFormat": "{{operation}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "GraphQL — latency p95 แยกตาม operation",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 22,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (operation, le) (rate(graphql_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{operation}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "outbox ที่ยังส่งไม่สำเร็จ",
+      "type": "timeseries",
+      "description": "ควรวนกลับมาใกล้ 0 เสมอ ค้างสูงต่อเนื่องแปลว่า event-service มีปัญหา หรือ worker ไม่ทำงาน — ตั้ง alert จากค่านี้ได้เลย",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "outbox_pending_count{namespace=\"vertex\"}",
+          "legendFormat": "pending",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "ผลการส่ง event",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(outbox_deliveries_total{namespace=\"vertex\"}[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}
