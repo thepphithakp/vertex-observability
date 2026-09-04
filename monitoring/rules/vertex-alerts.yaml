@@ -111,6 +111,30 @@ spec:
             summary: "{{ $labels.job }} ช้า — p95 เกิน 2 วินาที"
             description: "ดูว่า CPU ถูก throttle อยู่ไหมก่อนเป็นอันดับแรก แล้วค่อยดู query ของ database"
 
+        # เติมช่องโหว่ของ VertexHighErrorRate ข้างบน
+        #
+        # เกณฑ์ > 0.05 req/s ของตัวนั้นแปลว่าต้องมี 5xx ราว 30 ครั้งใน 10 นาที
+        # ซึ่ง auth-service ไปไม่ถึงตลอดกาล — วัดจริงได้ 0 request ต่อ 10 นาที
+        # (รวมทั้งหมดตั้งแต่เปิดบริการมี 71 request) ต่อให้ login พัง 100%
+        # ก็ไม่มีทางสะสม 5xx ครบ 30 ครั้งก่อนที่ window จะเลื่อนผ่าน
+        #
+        # ตัวนี้จึงนับจำนวนดิบอย่างเดียวไม่สนสัดส่วน ใช้ได้กับทุกระดับ traffic
+        # baseline วัดเมื่อ 2026-09-05: 5xx = 0 ตลอด 7 วันทุก service
+        # ดังนั้น 5 ครั้งใน 15 นาทีคือผิดปกติแน่นอน ไม่ว่าจะมี traffic มากแค่ไหน
+        - alert: VertexServerErrorsLowTraffic
+          expr: |
+            sum by (namespace, job) (
+              increase(http_requests_total{namespace="vertex",status=~"5.."}[15m])
+            ) >= 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} ตอบ 5xx {{ $value | printf \"%.0f\" }} ครั้งใน 15 นาที"
+            description: >-
+              นับจำนวนดิบเพราะ VertexHighErrorRate ครอบ service ที่ traffic บางมากไม่ได้
+              ถ้าเป็น auth-service ให้ดู /login กับ /auth/google ก่อน
+
     - name: vertex.outbox
       rules:
         # outbox ที่ค้างแปลว่า event ไม่ถึงปลายทาง — back office จะเห็นข้อมูลไม่ครบ
@@ -167,3 +191,67 @@ spec:
           annotations:
             summary: "ราคาของ {{ $labels.operation }} เข้าใกล้เพดาน 5000 แล้ว"
             description: "ทบทวนว่าจะปรับ query ให้ขอน้อยลง หรือขยับเพดานจากตัวเลขจริง"
+
+        # ⚠️ BFF ไม่ได้ export http_requests_total เลย
+        #
+        # VertexHighErrorRate กับ VertexHighLatency จึงครอบแค่ auth/event/pet
+        # ส่วน vertex-bff ซึ่งเป็นทางเข้าหลักของแอป iOS ไม่มี alert อะไรจับ error
+        # เลยจนถึงวันที่เพิ่มสามตัวข้างล่างนี้ (2026-09-05)
+        #
+        # baseline: result="error" = 0 ครั้งตลอด 14 วัน
+        # แม้แค่ครั้งเดียวจึงถือว่ามีอะไรผิด ไม่ต้องรอให้เป็นสัดส่วน
+        - alert: VertexGraphQLErrors
+          expr: |
+            sum by (namespace, operation) (
+              increase(graphql_operations_total{result="error"}[15m])
+            ) >= 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GraphQL {{ $labels.operation }} error {{ $value | printf \"%.0f\" }} ครั้งใน 15 นาที"
+            description: >-
+              GraphQL ตอบ HTTP 200 เสมอแม้ resolver จะพัง ดูจาก status code ไม่เห็น
+              ต้องดู field errors ใน log ของ vertex-bff ที่ Kibana
+
+        # ตัวข้างบนจับ "มีอะไรผิด" ตัวนี้จับ "พังจนใช้งานไม่ได้"
+        # ใช้ทั้งจำนวนและสัดส่วนคู่กันตามหลักเดียวกับ VertexHighErrorRate
+        - alert: VertexGraphQLHighErrorRate
+          expr: |
+            (
+              sum by (namespace, operation) (increase(graphql_operations_total{result="error"}[10m])) >= 5
+            )
+            and
+            (
+              sum by (namespace, operation) (increase(graphql_operations_total{result="error"}[10m]))
+              /
+              sum by (namespace, operation) (increase(graphql_operations_total[10m])) > 0.2
+            )
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "GraphQL {{ $labels.operation }} error เกิน 20% ของ operation นั้น"
+            description: "ผู้ใช้เปิดหน้านั้นไม่ได้แล้ว ไล่จาก log ของ vertex-bff ว่า upstream service ไหนพัง"
+
+        # ⚠️ ตัด WaterInsight ออกโดยตั้งใจ
+        #
+        # มันเรียก Gemini จึงช้าโดยธรรมชาติ — p95 วัดได้ 10.0 วินาทีซึ่งคือ
+        # ขอบ bucket สูงสุดพอดี (bucket จบที่ 10 แล้วเป็น +Inf)
+        # ถ้ารวมไว้ alert จะ firing ตลอดเวลาและกลบตัวอื่นจนไม่มีใครอ่าน
+        #
+        # baseline p95 ของ operation ที่เหลือ: WaterDay 0.24s · PetCaregivers 0.22s
+        # · MyCats 0.07s เกณฑ์ 2 วินาทีจึงห่างจากของจริงราว 8-28 เท่า
+        - alert: VertexGraphQLHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (namespace, operation, le) (
+                rate(graphql_operation_duration_seconds_bucket{operation!="WaterInsight"}[10m])
+              )
+            ) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GraphQL {{ $labels.operation }} ช้า — p95 เกิน 2 วินาที"
+            description: "ดู upstream ก่อน — BFF เรียก pet/auth/event ต่อ ถ้าตัวใดตัวหนึ่งช้าจะเห็นที่นี่ด้วย"
