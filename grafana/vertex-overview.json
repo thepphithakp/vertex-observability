@@ -12,16 +12,7 @@
     "to": "now"
   },
   "templating": {
-    "list": [
-      {
-        "name": "DS",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": {},
-        "hide": 0,
-        "label": "Datasource"
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
@@ -31,7 +22,7 @@
       "description": "1 = ดึงได้ · 0 = ดึงไม่ได้\\n\\npet-service เคยขึ้น 0 อยู่นานโดยไม่มีใครรู้ เพราะ /metrics ตอบ 500 จาก label ที่เพี้ยน ส่วน ServiceMonitor ยังเขียวอยู่ — แผงนี้คือที่เดียวที่บอกได้",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -46,7 +37,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -105,7 +96,7 @@
       "description": "",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 8,
@@ -120,7 +111,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -156,7 +147,7 @@
       "description": "BFF ทุก request เป็น POST /graphql เส้นเดียว จึงต้องแยกด้วย operation",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 16,
@@ -171,7 +162,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -207,7 +198,7 @@
       "description": "ควรเป็นศูนย์ตลอด ขึ้นเมื่อไหร่คือมีอะไรพังจริง",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -222,7 +213,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -258,7 +249,7 @@
       "description": "ใช้เทียบก่อน/หลังการแก้ แทนการเดาว่าเร็วขึ้นหรือเปล่า (บทเรียนจาก VT-103)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -273,7 +264,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -309,7 +300,7 @@
       "description": "",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -324,7 +315,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -360,7 +351,7 @@
       "description": "ค้างสูงต่อเนื่องแปลว่ามี request ที่ไม่จบ ไม่ใช่แค่ traffic เยอะ",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -375,7 +366,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -411,7 +402,7 @@
       "description": "ของที่โดนกันคือของที่อยากเห็นที่สุด\\n\\nขึ้นแปลว่ามีคนยิงถล่ม หรือเพดานตั้งแน่นเกินจนผู้ใช้จริงโดนไปด้วย ซึ่งต้องรีบรู้ทั้งคู่",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -426,7 +417,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -462,7 +453,7 @@
       "description": "ใช้ตั้งเพดานจากข้อมูลจริงแทนการเดา — LitterDay ที่ขอ 200 แถวราคา 1221",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 8,
@@ -477,7 +468,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -513,7 +504,7 @@
       "description": "",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 16,
@@ -528,7 +519,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -564,7 +555,7 @@
       "description": "ควรวนกลับมาใกล้ 0 เสมอ ค้างสูงต่อเนื่องแปลว่า event-service มีปัญหา หรือ worker ไม่ทำงาน — ตั้ง alert จากค่านี้ได้เลย",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -579,7 +570,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
@@ -615,7 +606,7 @@
       "description": "",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS}"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -630,7 +621,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS}"
+            "uid": "prometheus"
           }
         }
       ],
